@@ -1,0 +1,3 @@
+We are building a TikTok-like short video creation application. Our application will be Creator-focused, so we will initially be focusing on video creation.
+
+Our unique proposition is to have new prompts every day that people can generate videos around. These questions are meant to promote an actual social aspect, like "What Pokemon type would you be and why". Every day there will be a new question to respond to, creating a ritual-based application.

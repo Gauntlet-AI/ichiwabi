@@ -1,0 +1,236 @@
+{
+  "main": {
+    "id": "b4e051c833be1505",
+    "type": "split",
+    "children": [
+      {
+        "id": "5f0935187d3765c3",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "545f7a50a31fb13c",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "vernacular.md",
+                "mode": "source",
+                "backlinks": false,
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "vernacular"
+            }
+          },
+          {
+            "id": "9c5680d65d056e52",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "project-overview.md",
+                "mode": "source",
+                "backlinks": false,
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "project-overview"
+            }
+          }
+        ],
+        "currentTab": 1
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "d939924f03b2ea83",
+    "type": "split",
+    "children": [
+      {
+        "id": "b067653c28069f73",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "09f788f440062784",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "09d559d6caf4e01d",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "c2a0e6f5ca0a2ff6",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "047243bd2fce5d23",
+    "type": "split",
+    "children": [
+      {
+        "id": "1a9c5c1db1dd8d2a",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "8ab43ce38e150d2e",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "Welcome.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for Welcome"
+            }
+          },
+          {
+            "id": "883c3fd767aa4af1",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "Welcome.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from Welcome"
+            }
+          },
+          {
+            "id": "a715baa735e79fe3",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "c8282cc5989521af",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "Welcome.md"
+              },
+              "icon": "lucide-list",
+              "title": "Outline of Welcome"
+            }
+          },
+          {
+            "id": "eb1dd6c06910a92e",
+            "type": "leaf",
+            "state": {
+              "type": "calendar",
+              "state": {},
+              "icon": "lucide-file",
+              "title": "Plugin no longer active"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "table-editor-obsidian:Advanced Tables Toolbar": false,
+      "obsidian-custom-frames:Open Grok": false,
+      "obsidian-projects:Open projects": false,
+      "templater-obsidian:Templater": false,
+      "callout-manager:Insert Callout": false
+    }
+  },
+  "active": "9c5680d65d056e52",
+  "lastOpenFiles": [
+    "questions.md",
+    "vernacular.md",
+    "project-overview.md",
+    "Untitled.md",
+    "entitites.md",
+    "langsmith/tracing.md",
+    "langsmith/run_trees.ts",
+    "langsmith/traceable.ts",
+    "langsmith/run-trees.ts",
+    "langsmith/run-trees.md",
+    "langsmith",
+    "log/20250127_embedding_generation_fixes.md",
+    "log/ai-database-preparation-2024-01-27.md",
+    "plan/ai-plan.md",
+    "plan/seed-plan.md",
+    "checklist/3c-ai-ui-checklist.md",
+    "checklist/3b-ai-functionality-checklist.md",
+    "checklist/3a-ai-database-preparation-checklist.md",
+    "checklist/2c-ai-ui-checklist.md",
+    "checklist/2b-ai-functionality-checklist.md",
+    "checklist/2a-ai-database-preparation-checklist.md",
+    "checklist/1b-authentication-authorization-checklist.md",
+    "checklist/1a-database-api-checklist.md",
+    "supabase/schema.md",
+    "supabase/database-overview.md",
+    "plan/1a-database-and-api-setup.md",
+    "checklist/checklist-rules.md",
+    "plan/goal.md",
+    "plan/simplified-overview.md",
+    "plan/project-overview-original.md",
+    "supabase/supabase-rls-docs",
+    "api/openapi.yaml",
+    "plan/simplified-overview",
+    "api",
+    "checklist/done",
+    "ai-implementation"
+  ]
+}

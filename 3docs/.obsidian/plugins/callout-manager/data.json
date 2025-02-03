@@ -1,0 +1,43 @@
+{
+  "callouts": {
+    "custom": [
+      "draft-one",
+      "draft-two"
+    ],
+    "settings": {
+      "draft-one": [
+        {
+          "changes": {}
+        },
+        {
+          "condition": {
+            "colorScheme": "light"
+          },
+          "changes": {
+            "color": "158, 158, 158"
+          }
+        },
+        {
+          "condition": {
+            "colorScheme": "dark"
+          },
+          "changes": {
+            "color": "158, 158, 158"
+          }
+        }
+      ],
+      "draft-two": [
+        {
+          "changes": {
+            "color": "83, 223, 221"
+          }
+        }
+      ]
+    }
+  },
+  "calloutDetection": {
+    "obsidian": true,
+    "theme": true,
+    "snippet": true
+  }
+}

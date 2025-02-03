@@ -1,0 +1,5 @@
+- How should I work between XCode and Cursor?
+- How do I use Firebase?
+- What is the advantage of using NoSQL?
+- Should I use a testing system?
+- Should I use SwiftData or CoreData or nothing and just do Firebase?
