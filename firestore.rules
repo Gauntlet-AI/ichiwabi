@@ -1,0 +1,106 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isAdmin() {
+      return isSignedIn() && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    
+    function isModerator() {
+      return isSignedIn() && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'moderator'];
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+    
+    function isFollowing(userId) {
+      return isSignedIn() && 
+        exists(/databases/$(database)/documents/users/$(userId)/relationships/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(userId)/relationships/$(request.auth.uid)).data.type == 'follower' &&
+        get(/databases/$(database)/documents/users/$(userId)/relationships/$(request.auth.uid)).data.status == 'accepted';
+    }
+    
+    // Users collection
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isOwner(userId);
+      allow update: if isSignedIn() && (isOwner(userId) || isModerator());
+      allow delete: if isAdmin();
+      
+      // Relationships subcollection
+      match /relationships/{otherUserId} {
+        allow read: if isSignedIn() && (isOwner(userId) || isOwner(otherUserId));
+        allow write: if isSignedIn() && (isOwner(userId) || isOwner(otherUserId));
+      }
+      
+      // Activity subcollection
+      match /activity/{activityId} {
+        allow read: if isSignedIn() && isOwner(userId);
+        allow create: if isSignedIn();
+        allow delete: if isSignedIn() && isOwner(userId);
+      }
+    }
+    
+    // Prompts collection
+    match /prompts/{promptId} {
+      allow read: if true;  // Public read access
+      allow create: if isAdmin() || 
+        (resource.data.isUserGenerated == true && isSignedIn());
+      allow update: if isAdmin() ||
+        (resource.data.isUserGenerated == true && 
+         resource.data.createdBy == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+    
+    // Responses collection
+    match /responses/{responseId} {
+      allow read: if resource.data.visibility == 'public' ||
+        (isSignedIn() && (
+          isOwner(resource.data.userId) ||
+          (resource.data.visibility == 'friendsOnly' && isFollowing(resource.data.userId))
+        ));
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if isSignedIn() && (
+        isOwner(resource.data.userId) || isModerator()
+      );
+      allow delete: if isSignedIn() && (
+        isOwner(resource.data.userId) || isAdmin()
+      );
+      
+      // Comments subcollection
+      match /comments/{commentId} {
+        allow read: if resource.parent.data.visibility == 'public' ||
+          (isSignedIn() && (
+            isOwner(resource.parent.data.userId) ||
+            (resource.parent.data.visibility == 'friendsOnly' && 
+             isFollowing(resource.parent.data.userId))
+          ));
+        allow create: if isSignedIn() && 
+          resource.parent.data.allowComments == true;
+        allow update: if isSignedIn() && 
+          resource.data.userId == request.auth.uid;
+        allow delete: if isSignedIn() && (
+          resource.data.userId == request.auth.uid ||
+          resource.parent.data.userId == request.auth.uid ||
+          isModerator()
+        );
+      }
+    }
+    
+    // Reports collection
+    match /reports/{reportId} {
+      allow create: if isSignedIn();
+      allow read: if isModerator();
+      allow update: if isModerator();
+      allow delete: if isAdmin();
+    }
+  }
+} 

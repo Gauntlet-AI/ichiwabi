@@ -7,12 +7,24 @@
 
 import SwiftUI
 import SwiftData
+import FirebaseCore
 
 @main
-struct ichiwabiApp: App {
+struct IchiwabiApp: App {
+    init() {
+        // Configure Firebase
+        FirebaseConfig.configure()
+    }
+    
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            Item.self,
+            User.self,
+            Prompt.self,
+            VideoResponse.self,
+            Comment.self,
+            Notification.self,
+            Settings.self,
+            Report.self
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 

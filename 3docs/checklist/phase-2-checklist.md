@@ -1,30 +1,23 @@
 # Phase 2 Authentication Checklist
 
-## Sign in with Apple
-- [ ] Set up Apple Sign In capability in Xcode
-- [ ] Implement ASAuthorizationController
-- [ ] Create Firebase user from Apple authentication
-- [ ] Handle Apple Sign In state changes
-- [ ] Implement sign out functionality
-
 ## Email/Password Authentication
-- [ ] Create email/password sign up UI
-- [ ] Implement password validation
-  - [ ] Minimum 8 characters
-  - [ ] At least one capital letter
-  - [ ] At least one number
-  - [ ] At least one symbol
-- [ ] Create Firebase user with email/password
-- [ ] Implement password reset flow
-  - [ ] Create reset password UI
-  - [ ] Implement Firebase password reset
-  - [ ] Handle reset email responses
+- [x] Create email/password sign up UI
+- [x] Implement password validation
+  - [x] Minimum 8 characters
+  - [x] At least one capital letter
+  - [x] At least one number
+  - [x] At least one symbol
+- [x] Create Firebase user with email/password
+- [x] Implement password reset flow
+  - [x] Create reset password UI
+  - [x] Implement Firebase password reset
+  - [x] Handle reset email responses
 
 ## User Profile & Onboarding
-- [ ] Create User model in SwiftData
+- [PROGRESS] Create User model in SwiftData
 - [ ] Design onboarding flow UI
-- [ ] Implement profile creation
-  - [ ] Username input/validation
+- [PROGRESS] Implement profile creation
+  - [x] Username input/validation
   - [ ] Photo upload/selection
   - [ ] Catch phrase input (50 char limit)
 - [ ] Create Firestore user document
@@ -39,18 +32,18 @@
 - [ ] Store authentication preference
 
 ## UI/UX Implementation
-- [ ] Design authentication screens
+- [x] Design authentication screens
 - [ ] Implement dark/light mode support
-- [ ] Create loading states for auth operations
-- [ ] Implement error messaging system
-- [ ] Design and implement auth success states
+- [x] Create loading states for auth operations
+- [x] Implement error messaging system
+- [x] Design and implement auth success states
 
 ## Authentication State Management
-- [ ] Create AuthenticationManager service
-- [ ] Implement auth state persistence
-- [ ] Handle app launch auth state
-- [ ] Create auth state observers
-- [ ] Implement secure token storage
+- [x] Create AuthenticationManager service
+- [x] Implement auth state persistence
+- [x] Handle app launch auth state
+- [x] Create auth state observers
+- [x] Implement secure token storage
 
 ---
 
