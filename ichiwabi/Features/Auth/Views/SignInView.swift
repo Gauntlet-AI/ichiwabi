@@ -34,12 +34,8 @@ struct SignInView: View {
             }
         }
         .onAppear {
-            do {
-                let container = try ModelContainer(for: User.self)
-                authService = AuthenticationService(context: container.mainContext)
-            } catch {
-                showError = true
-                errorMessage = "Failed to initialize: \(error.localizedDescription)"
+            if authService == nil {
+                authService = AuthenticationService(context: modelContext)
             }
         }
     }
@@ -55,6 +51,8 @@ private struct SignInContentView: View {
     @Binding var errorMessage: String
     @Binding var showForgotPassword: Bool
     @Binding var keyboardHeight: CGFloat
+    @Environment(\.modelContext) private var modelContext
+    @State private var userService: UserSyncService?
     
     var body: some View {
         ScrollView {
@@ -74,6 +72,56 @@ private struct SignInContentView: View {
                 Text("Create and share daily video responses")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
+                
+                #if DEBUG
+                // Development test button
+                Button(action: {
+                    Task {
+                        do {
+                            print("🔍 Creating UserSyncService with modelContext: \(modelContext)")
+                            let userService = UserSyncService(modelContext: modelContext)
+                            print("🔍 UserSyncService created successfully")
+                            try await userService.signInWithTestUser()
+                        } catch {
+                            print("❌ Error during test sign in: \(error)")
+                            showError = true
+                            errorMessage = error.localizedDescription
+                        }
+                    }
+                }) {
+                    Text("Test Sign In (Dev)")
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.green)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                }
+                .padding(.horizontal)
+                #endif
+                
+                if !isSignUp && authService.isBiometricEnabled {
+                    Button(action: {
+                        Task {
+                            do {
+                                try await authService.authenticateWithBiometrics()
+                            } catch {
+                                showError = true
+                                errorMessage = error.localizedDescription
+                            }
+                        }
+                    }) {
+                        HStack {
+                            Image(systemName: authService.getBiometricType() == .faceID ? "faceid" : "touchid")
+                            Text("Sign in with \(authService.getBiometricType().description)")
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.secondary.opacity(0.1))
+                        .foregroundColor(.primary)
+                        .cornerRadius(10)
+                    }
+                    .padding(.horizontal)
+                }
                 
                 VStack(spacing: 15) {
                     TextField("Email", text: $email)

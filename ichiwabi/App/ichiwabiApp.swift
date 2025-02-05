@@ -8,28 +8,33 @@
 import SwiftUI
 import SwiftData
 import FirebaseCore
+import UIKit
+
+class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication,
+                    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
+        FirebaseApp.configure()
+        return true
+    }
+}
 
 @main
 struct IchiwabiApp: App {
-    init() {
-        // Configure Firebase
-        FirebaseConfig.configure()
-    }
+    // Register app delegate for Firebase setup
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
     
     var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            User.self,
-            Prompt.self,
-            VideoResponse.self,
-            Comment.self,
-            Notification.self,
-            Settings.self,
-            Report.self
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-
         do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
+            return try ModelContainer(
+                for: User.self,
+                Tag.self,
+                Prompt.self,
+                VideoResponse.self,
+                Comment.self,
+                Report.self,
+                Notification.self,
+                configurations: ModelConfiguration(isStoredInMemoryOnly: false)
+            )
         } catch {
             fatalError("Could not create ModelContainer: \(error)")
         }

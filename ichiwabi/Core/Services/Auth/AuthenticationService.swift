@@ -12,11 +12,37 @@ final class AuthenticationService {
         case loading
     }
     
+    enum AuthError: LocalizedError {
+        case notAuthenticated
+        case invalidCredentials
+        case networkError
+        case biometricError(String)
+        case unknown
+        
+        var errorDescription: String? {
+            switch self {
+            case .notAuthenticated:
+                return "Please sign in with your email and password first to enable biometric authentication"
+            case .invalidCredentials:
+                return "Invalid email or password"
+            case .networkError:
+                return "Network error occurred. Please check your connection"
+            case .biometricError(let message):
+                return message
+            case .unknown:
+                return "An unexpected error occurred"
+            }
+        }
+    }
+    
     // MARK: - Properties
     private let auth = Auth.auth()
     let context: ModelContext
     private let syncService: UserSyncService
     private var currentNonce: String?
+    private let biometricService = BiometricAuthService()
+    private let defaults = UserDefaults.standard
+    private let lastSignedInEmailKey = "lastSignedInEmail"
     
     var authState: AuthState = .loading
     var currentUser: User?
@@ -61,10 +87,14 @@ final class AuthenticationService {
     
     func signIn(email: String, password: String) async throws {
         try await auth.signIn(withEmail: email, password: password)
+        // Store email for biometric auth
+        defaults.set(email, forKey: lastSignedInEmailKey)
     }
     
     func signOut() throws {
         try auth.signOut()
+        // Clear stored email
+        defaults.removeObject(forKey: lastSignedInEmailKey)
     }
     
     func resetPassword(email: String) async throws {
@@ -162,5 +192,35 @@ final class AuthenticationService {
         }.joined()
         
         return hashString
+    }
+    
+    func authenticateWithBiometrics() async throws {
+        // Get stored email
+        guard let email = defaults.string(forKey: lastSignedInEmailKey) else {
+            throw AuthError.notAuthenticated
+        }
+        
+        // First verify biometric
+        try await biometricService.authenticate()
+        
+        // Then try to sign in with the stored token
+        if auth.currentUser == nil {
+            // We need to reauthenticate since we're signed out
+            // For security reasons, we'll throw an error and ask the user to sign in normally first
+            throw AuthError.notAuthenticated
+        }
+    }
+    
+    func isBiometricAuthAvailable() -> Bool {
+        return biometricService.checkBiometricAvailability()
+    }
+    
+    func getBiometricType() -> BiometricType {
+        return biometricService.biometricType
+    }
+    
+    var isBiometricEnabled: Bool {
+        get { biometricService.isBiometricEnabled }
+        set { biometricService.isBiometricEnabled = newValue }
     }
 } 

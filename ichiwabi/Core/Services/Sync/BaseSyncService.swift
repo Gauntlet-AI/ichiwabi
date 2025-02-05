@@ -8,7 +8,7 @@ protocol PersistentModelWithStringID {
 }
 
 @MainActor
-class BaseSyncService<T> where T: PersistentModel & SyncableModel & PersistentModelWithStringID {
+class BaseSyncService<T> where T: PersistentModel & Observable & SyncableModel & PersistentModelWithStringID {
     private let db = Firestore.firestore()
     let context: ModelContext
     private let networkMonitor = NWPathMonitor()
@@ -23,38 +23,34 @@ class BaseSyncService<T> where T: PersistentModel & SyncableModel & PersistentMo
         networkMonitor.pathUpdateHandler = { [weak self] path in
             Task { @MainActor in
                 self?.isOnline = path.status == .satisfied
-                if self?.isOnline == true {
-                    // Trigger sync for pending changes when coming back online
-                    try? await self?.syncPendingChanges()
-                }
+                // Removing automatic sync on network change
+                print("💫 Network status changed - isOnline: \(path.status == .satisfied)")
             }
         }
-        networkMonitor.start(queue: DispatchQueue.global())
+        networkMonitor.start(queue: DispatchQueue.main)
     }
     
     // MARK: - Core Sync Operations
     
     /// Sync a single model instance to Firestore
-    func sync(_ model: T) async throws {
+    func sync(_ originalModel: T) async throws {
         guard isOnline else {
-            // Store for later sync when offline
-            try await updateLocalModel(model, status: .pendingUpload)
+            let modelCopy = try await updateLocalModel(originalModel, status: .pendingUpload)
             throw SyncError.offline
         }
         
         // Validate the model before attempting to sync
-        try model.validate()
+        try originalModel.validate()
         
-        let docRef = db.collection(T.collectionPath).document(model.persistentModelID)
+        let docRef = db.collection(T.collectionPath).document(originalModel.persistentModelID)
         
         // Check for conflicts
         if let existingDoc = try? await docRef.getDocument().data() {
             do {
-                let existingModel = try T.fromFirestoreData(existingDoc, id: model.persistentModelID)
-                if model.hasConflictsWith(existingModel) {
-                    let mergedModel = try model.mergeChanges(from: existingModel)
-                    try await updateFirestore(mergedModel)
-                    try await updateLocalModel(mergedModel, status: .synced)
+                let existingModel = try T.fromFirestoreData(existingDoc, id: originalModel.persistentModelID)
+                if originalModel.hasConflictsWith(existingModel) {
+                    try await updateFirestore(originalModel)
+                    _ = try await updateLocalModel(originalModel, status: .synced)
                     return
                 }
             } catch {
@@ -63,8 +59,8 @@ class BaseSyncService<T> where T: PersistentModel & SyncableModel & PersistentMo
         }
         
         // No conflict or couldn't parse existing model, proceed with update
-        try await updateFirestore(model)
-        try await updateLocalModel(model, status: .synced)
+        try await updateFirestore(originalModel)
+        _ = try await updateLocalModel(originalModel, status: .synced)
     }
     
     /// Fetch and sync changes from Firestore
@@ -74,8 +70,7 @@ class BaseSyncService<T> where T: PersistentModel & SyncableModel & PersistentMo
         }
         
         let snapshot = try await db.collection(T.collectionPath).getDocuments()
-        let descriptor = FetchDescriptor<T>()
-        let localModels = try context.fetch(descriptor)
+        let localModels = try context.fetch(FetchDescriptor<T>())
         
         for document in snapshot.documents {
             do {
@@ -84,17 +79,16 @@ class BaseSyncService<T> where T: PersistentModel & SyncableModel & PersistentMo
                 // Check for local version
                 if let localModel = localModels.first(where: { $0.persistentModelID == document.documentID }) {
                     if localModel.hasConflictsWith(remoteModel) {
-                        let mergedModel = try localModel.mergeChanges(from: remoteModel)
-                        try await updateFirestore(mergedModel)
-                        try await updateLocalModel(mergedModel, status: .synced)
+                        try await updateFirestore(localModel)
+                        _ = try await updateLocalModel(localModel, status: .synced)
                     } else if let remoteDate = remoteModel.lastSyncedAt,
                               let localDate = localModel.lastSyncedAt,
                               remoteDate > localDate {
-                        try await updateLocalModel(remoteModel, status: .synced)
+                        _ = try await updateLocalModel(remoteModel, status: .synced)
                     }
                 } else {
                     // No local version exists, save the remote version
-                    try await updateLocalModel(remoteModel, status: .synced)
+                    _ = try await updateLocalModel(remoteModel, status: .synced)
                 }
             } catch {
                 print("Error syncing document \(document.documentID): \(error)")
@@ -106,45 +100,99 @@ class BaseSyncService<T> where T: PersistentModel & SyncableModel & PersistentMo
     /// Sync pending local changes to Firestore
     func syncPendingChanges() async throws {
         guard isOnline else {
+            print("💫 Sync: Device is offline")
             throw SyncError.offline
         }
         
-        let descriptor = FetchDescriptor<T>()
-        let models = try context.fetch(descriptor)
+        print("💫 Sync: Starting to sync pending changes")
+        print("💫 Sync: Model type is \(String(describing: T.self))")
         
-        let pendingModels = models.filter { model in
-            guard let status = SyncStatus(rawValue: model.syncStatus) else {
-                return false
+        do {
+            print("💫 Sync: Creating fetch descriptor...")
+            let descriptor = FetchDescriptor<T>()
+            
+            print("💫 Sync: Attempting fetch...")
+            let allModels = try context.fetch(descriptor)
+            print("💫 Sync: Successfully fetched \(allModels.count) models")
+            
+            var pendingModels: [T] = []
+            for model in allModels {
+                print("💫 Sync: Checking model \(model.persistentModelID) with status: \(model.syncStatus)")
+                if model.syncStatus == SyncStatus.pendingUpload.rawValue {
+                    pendingModels.append(model)
+                }
             }
-            return status == .pendingUpload
-        }
-        
-        // Sync each pending model individually to handle conflicts properly
-        for model in pendingModels {
-            do {
-                try model.validate()
-                try await sync(model)
-            } catch {
-                print("Error syncing pending model \(model.persistentModelID): \(error)")
-                continue
+            
+            print("💫 Sync: Found \(pendingModels.count) pending models")
+            
+            for model in pendingModels {
+                print("💫 Sync: Processing model \(model.persistentModelID)")
+                do {
+                    try model.validate()
+                    print("💫 Sync: Model validation passed")
+                    try await sync(model)
+                    print("💫 Sync: Successfully synced model")
+                } catch {
+                    print("💫 Sync: Error syncing model \(model.persistentModelID): \(error)")
+                    do {
+                        try await updateLocalModel(model, status: .error)
+                        print("💫 Sync: Updated model status to error")
+                    } catch {
+                        print("💫 Sync: Failed to update model status: \(error)")
+                    }
+                }
             }
+            
+            print("💫 Sync: Finished processing all pending models")
+        } catch {
+            print("💫 Sync: Critical error during sync: \(error)")
+            throw error
         }
     }
     
     // MARK: - Helper Methods
     
+    private func updateLocalModel(_ model: T, status: SyncStatus) async throws -> T {
+        print("💫 Update: Starting update for model \(model.persistentModelID)")
+        let existingModels = try context.fetch(FetchDescriptor<T>())
+        
+        if let existingModel = existingModels.first(where: { $0.persistentModelID == model.persistentModelID }) {
+            print("💫 Update: Found existing model")
+            do {
+                var modelData = try await existingModel.toFirestoreData()
+                modelData["syncStatus"] = status.rawValue
+                modelData["lastSyncedAt"] = Timestamp(date: Date())
+                let updatedModel = try T.fromFirestoreData(modelData, id: existingModel.persistentModelID)
+                context.insert(updatedModel)
+                try context.save()
+                print("💫 Update: Successfully updated existing model")
+                return updatedModel
+            } catch {
+                print("💫 Update: Error updating existing model: \(error)")
+                throw error
+            }
+        }
+        
+        print("💫 Update: Creating new model instance")
+        do {
+            var modelData = try await model.toFirestoreData()
+            modelData["syncStatus"] = status.rawValue
+            modelData["lastSyncedAt"] = Timestamp(date: Date())
+            let newModel = try T.fromFirestoreData(modelData, id: model.persistentModelID)
+            context.insert(newModel)
+            try context.save()
+            print("💫 Update: Successfully created new model")
+            return newModel
+        } catch {
+            print("💫 Update: Error creating new model: \(error)")
+            throw error
+        }
+    }
+    
     private func updateFirestore(_ model: T) async throws {
         try model.validate()
         let docRef = db.collection(T.collectionPath).document(model.persistentModelID)
         try await docRef.setData(model.toFirestoreData(), merge: true)
-    }
-    
-    private func updateLocalModel(_ model: T, status: SyncStatus) async throws {
-        var updatedModel = model
-        updatedModel.syncStatus = status.rawValue
-        updatedModel.lastSyncedAt = Date()
-        context.insert(updatedModel)
-        try context.save()
     }
     
     // MARK: - Real-time Updates
@@ -164,10 +212,14 @@ class BaseSyncService<T> where T: PersistentModel & SyncableModel & PersistentMo
             snapshot.documentChanges.forEach { change in
                 if change.type == .modified || change.type == .added {
                     do {
-                        let model = try T.fromFirestoreData(change.document.data(), id: change.document.documentID)
+                        var modelData = change.document.data()
+                        modelData["syncStatus"] = SyncStatus.synced.rawValue
+                        modelData["lastSyncedAt"] = Timestamp(date: Date())
+                        let model = try T.fromFirestoreData(modelData, id: change.document.documentID)
                         Task { @MainActor in
                             do {
-                                try await self?.updateLocalModel(model, status: .synced)
+                                self?.context.insert(model)
+                                try self?.context.save()
                                 completion(.success(model))
                             } catch {
                                 completion(.failure(error))
@@ -178,6 +230,33 @@ class BaseSyncService<T> where T: PersistentModel & SyncableModel & PersistentMo
                     }
                 }
             }
+        }
+    }
+    
+    // MARK: - Testing
+    
+    @MainActor
+    func testSwiftDataOperations() async throws {
+        print("🔍 Testing SwiftData operations")
+        print("🔍 Context: \(context)")
+        print("🔍 Container: \(context.container)")
+        
+        do {
+            print("🔍 Attempting simple fetch...")
+            let descriptor = FetchDescriptor<T>()
+            let models = try context.fetch(descriptor)
+            print("🔍 Fetch successful - found \(models.count) models")
+            
+            // Try to create a test model
+            print("🔍 Testing model creation...")
+            if let model = models.first {
+                print("🔍 Found existing model: \(model.persistentModelID)")
+            } else {
+                print("🔍 No models found in database")
+            }
+        } catch {
+            print("🔍 SwiftData error: \(error)")
+            throw error
         }
     }
     

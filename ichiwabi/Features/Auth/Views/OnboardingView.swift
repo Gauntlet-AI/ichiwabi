@@ -29,6 +29,7 @@ struct OnboardingView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \User.createdAt) private var users: [User]
     @State private var userService: UserSyncService?
+    @State private var storageService = StorageService()
     @State private var currentStep = 0
     @State private var username: String
     @State private var displayName: String
@@ -245,16 +246,17 @@ struct OnboardingView: View {
                 }
                 
                 if let imageData = selectedImageData {
-                    // TODO: Implement photo upload to Firebase Storage
-                    // For now, we'll just update a placeholder URL
-                    currentUser.avatarURL = URL(string: "placeholder_url")
+                    // Upload photo to Firebase Storage
+                    let downloadURL = try await storageService.uploadProfilePhoto(
+                        userId: currentUser.id,
+                        imageData: imageData
+                    )
+                    currentUser.avatarURL = downloadURL
                 }
                 
-                if !catchphrase.isEmpty {
-                    currentUser.catchphrase = catchphrase
-                }
-                
+                currentUser.catchphrase = catchphrase
                 currentUser.updatedAt = Date()
+                
                 try await service.sync(currentUser)
                 
                 withAnimation {

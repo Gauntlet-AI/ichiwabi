@@ -9,61 +9,182 @@ final class UserSyncService: BaseSyncService<User> {
     private let auth = Auth.auth()
     
     override init(modelContext: ModelContext) {
+        print("🔍 Initializing UserSyncService")
+        print("🔍 ModelContext: \(modelContext)")
+        print("🔍 Container: \(String(describing: modelContext.container))")
         super.init(modelContext: modelContext)
     }
     
+    #if DEBUG
+    /// Helper method for development to sign in with a test user in the emulator
+    @MainActor
+    func signInWithTestUser() async throws {
+        print("🔍 Attempting to sign in with test user")
+        // Test user credentials
+        let email = "test@example.com"
+        let password = "password123"
+        
+        do {
+            // Try to create the user first
+            print("🔍 Attempting to create test user")
+            try await Auth.auth().createUser(withEmail: email, password: password)
+            print("🔍 Test user created successfully")
+        } catch let error as NSError {
+            // If the user already exists (error code 17007), that's fine
+            if error.code != 17007 {
+                print("🔍 Error creating test user: \(error)")
+                throw error
+            }
+            print("🔍 Test user already exists")
+        }
+        
+        do {
+            print("🔍 Signing in with test user")
+            let result = try await Auth.auth().signIn(withEmail: email, password: password)
+            print("🔍 Successfully signed in with test user: \(result.user.uid)")
+            
+            // Trigger sync after successful sign in
+            try await syncCurrentUser()
+        } catch {
+            print("🔍 Error signing in with test user: \(error)")
+            throw error
+        }
+    }
+    #endif
+    
+    @MainActor
+    func verifySwiftDataSetup() async throws {
+        print("🔍 Verifying SwiftData setup")
+        print("🔍 Current thread: \(Thread.current.isMainThread ? "Main thread" : "Background thread")")
+        
+        // Since context is not optional in BaseSyncService, we'll just verify it exists
+        print("🔍 Context: \(context)")
+        
+        // Try a simple operation first
+        do {
+            print("🔍 Attempting simple fetch operation...")
+            var descriptor = FetchDescriptor<User>()
+            descriptor.fetchLimit = 1
+            
+            let users = try context.fetch(descriptor)
+            print("✅ Fetch successful - found \(users.count) users")
+            
+            // If we got here, the context is working
+            return
+            
+        } catch {
+            print("❌ Initial fetch failed: \(error)")
+            
+            // Let's try to understand what's wrong with the context
+            print("🔍 Diagnosing context state:")
+            print("🔍 - Context class: \(type(of: context))")
+            print("🔍 - Has pending changes: \(context.hasChanges)")
+            
+            // Try to save any pending changes
+            do {
+                print("🔍 Attempting to save context...")
+                try context.save()
+                print("✅ Context save successful")
+            } catch {
+                print("❌ Context save failed: \(error)")
+            }
+            
+            throw SyncError.invalidData("SwiftData context is not ready: \(error.localizedDescription)")
+        }
+    }
+    
+    @MainActor
     private func fetchUser(withId id: String) throws -> User? {
-        try context.fetch(FetchDescriptor<User>()).first { user in
-            user.id == id
+        print("🔍 Fetching user with ID: \(id)")
+        print("🔍 Context state:")
+        print("🔍 - Context: \(context)")
+        print("🔍 - Container: \(context.container)")
+        print("🔍 - Schema: \(context.container.schema)")
+        
+        do {
+            print("🔍 Starting fetch operation...")
+            let descriptor = FetchDescriptor<User>()
+            let users = try context.fetch(descriptor)
+            print("🔍 Fetch completed, found \(users.count) users")
+            
+            let matchingUser = users.first(where: { $0.id == id })
+            print("🔍 Matching user found: \(matchingUser != nil)")
+            
+            return matchingUser
+        } catch {
+            print("🔍 Fetch failed with error: \(error)")
+            throw SyncError.invalidData("Failed to fetch user: \(error.localizedDescription)")
         }
     }
     
     // MARK: - User-specific Sync Operations
     
-    /// Sync current user's data
+    @MainActor
     func syncCurrentUser() async throws {
+        print("🔍 Starting syncCurrentUser")
+        
         guard let currentUser = auth.currentUser else {
+            print("🔍 No current Firebase user - not authenticated")
             throw SyncError.unauthorized
         }
         
-        // First try to find existing user in SwiftData
-        if let localUser = try? fetchUser(withId: currentUser.uid) {
-            do {
-                let docRef = Firestore.firestore().collection(User.collectionPath).document(currentUser.uid)
-                let document = try await docRef.getDocument()
-                
-                if document.exists, let data = document.data() {
-                    // Update existing user with Firestore data
-                    let firestoreUser = try User.fromFirestoreData(data, id: currentUser.uid)
-                    try await localUser.mergeChanges(from: firestoreUser)
-                    try await sync(localUser)
-                } else {
-                    // No Firestore data, push local user to Firestore
-                    try await sync(localUser)
-                }
-            } catch {
-                print("Error syncing with Firestore: \(error)")
-                // Keep using local user data
-            }
-            return
-        }
+        print("🔍 Firebase user found: \(currentUser.uid)")
+        print("🔍 Email: \(currentUser.email ?? "none")")
+        print("🔍 Display name: \(currentUser.displayName ?? "none")")
         
-        // No local user, try to get from Firestore
+        // Verify SwiftData setup first
+        print("🔍 Starting SwiftData verification...")
+        try await verifySwiftDataSetup()
+        print("🔍 SwiftData verification complete")
+        
         do {
-            let docRef = Firestore.firestore().collection(User.collectionPath).document(currentUser.uid)
-            let document = try await docRef.getDocument()
-            
-            if document.exists, let data = document.data() {
-                let user = try User.fromFirestoreData(data, id: currentUser.uid)
-                try await sync(user)
+            if let localUser = try fetchUser(withId: currentUser.uid) {
+                print("🔍 Found existing user in SwiftData: \(localUser.id)")
+                print("🔍 Username: \(localUser.username)")
+                print("🔍 Sync status: \(localUser.syncStatus)")
+                
+                do {
+                    let docRef = Firestore.firestore().collection(User.collectionPath).document(currentUser.uid)
+                    print("🔍 Checking Firestore document...")
+                    let document = try await docRef.getDocument()
+                    
+                    if document.exists, let data = document.data() {
+                        print("🔍 Found Firestore data, updating local user")
+                        let firestoreUser = try User.fromFirestoreData(data, id: currentUser.uid)
+                        try await localUser.mergeChanges(from: firestoreUser)
+                        try await sync(localUser)
+                        print("🔍 Local user updated from Firestore")
+                    } else {
+                        print("🔍 No Firestore data, syncing local user to Firestore")
+                        try await sync(localUser)
+                        print("🔍 Local user synced to Firestore")
+                    }
+                } catch {
+                    print("🔍 Error during Firestore sync: \(error)")
+                    throw error
+                }
             } else {
-                // No user anywhere, create new
-                try await createNewUser(from: currentUser)
+                print("🔍 No local user found, creating new user")
+                let newUser = User(
+                    id: currentUser.uid,
+                    username: currentUser.email ?? "user_\(currentUser.uid)",
+                    displayName: currentUser.displayName ?? "New User",
+                    email: currentUser.email ?? "",
+                    isEmailVerified: currentUser.isEmailVerified
+                )
+                
+                print("🔍 Inserting new user into SwiftData")
+                context.insert(newUser)
+                try context.save()
+                print("🔍 New user saved to SwiftData")
+                
+                print("🔍 Syncing new user to Firestore")
+                try await sync(newUser)
+                print("🔍 New user synced with Firestore")
             }
         } catch {
-            // If all else fails, create new user
-            print("Error fetching from Firestore: \(error)")
-            try await createNewUser(from: currentUser)
+            print("🔍 Error during sync process: \(error)")
+            throw error
         }
     }
     

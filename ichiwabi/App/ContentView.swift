@@ -4,27 +4,27 @@ import SwiftData
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
-    @State private var authService: AuthenticationService
-    
-    init() {
-        do {
-            let container = try ModelContainer(for: User.self)
-            _authService = State(initialValue: AuthenticationService(context: container.mainContext))
-        } catch {
-            fatalError("Failed to create ModelContainer: \(error)")
-        }
-    }
+    @State private var authService: AuthenticationService?
     
     var body: some View {
         Group {
-            switch authService.authState {
-            case .loading:
+            if let authService = authService {
+                switch authService.authState {
+                case .loading:
+                    ProgressView()
+                case .signedOut:
+                    SignInView()
+                        .environment(authService)
+                case .signedIn:
+                    MainAppView(authService: authService)
+                }
+            } else {
                 ProgressView()
-            case .signedOut:
-                SignInView()
-                    .environment(authService)
-            case .signedIn:
-                MainAppView(authService: authService)
+            }
+        }
+        .onAppear {
+            if authService == nil {
+                authService = AuthenticationService(context: modelContext)
             }
         }
     }
@@ -155,6 +155,21 @@ struct MainAppView: View {
                                 .background(Color.accentColor)
                                 .foregroundColor(.white)
                                 .cornerRadius(10)
+                            }
+                            .padding(.horizontal)
+                            
+                            // Security Settings
+                            Section {
+                                NavigationLink {
+                                    BiometricSettingsView()
+                                } label: {
+                                    HStack {
+                                        Image(systemName: "faceid")
+                                        Text("Biometric Authentication")
+                                    }
+                                }
+                            } header: {
+                                Text("Security")
                             }
                             .padding(.horizontal)
                         }
