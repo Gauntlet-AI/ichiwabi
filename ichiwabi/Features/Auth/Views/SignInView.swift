@@ -99,28 +99,35 @@ private struct SignInContentView: View {
                 .padding(.horizontal)
                 #endif
                 
-                if !isSignUp && authService.isBiometricEnabled {
-                    Button(action: {
-                        Task {
-                            do {
-                                try await authService.authenticateWithBiometrics()
-                            } catch {
-                                showError = true
-                                errorMessage = error.localizedDescription
+                Group {
+                    if !isSignUp && authService.isBiometricAuthAvailable() && authService.getBiometricType() != .none {
+                        Button(action: {
+                            Task {
+                                do {
+                                    try await authService.authenticateWithBiometrics()
+                                } catch {
+                                    showError = true
+                                    errorMessage = error.localizedDescription
+                                }
                             }
+                        }) {
+                            HStack {
+                                Image(systemName: authService.getBiometricType() == .faceID ? "faceid" : "touchid")
+                                Text("Sign in with \(authService.getBiometricType().description)")
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.secondary.opacity(0.1))
+                            .foregroundColor(.primary)
+                            .cornerRadius(10)
                         }
-                    }) {
-                        HStack {
-                            Image(systemName: authService.getBiometricType() == .faceID ? "faceid" : "touchid")
-                            Text("Sign in with \(authService.getBiometricType().description)")
+                        .padding(.horizontal)
+                        .onAppear {
+                            print("🔐 Checking biometric sign-in availability")
+                            print("🔐 Biometric available: \(authService.isBiometricAuthAvailable())")
+                            print("🔐 Biometric type: \(authService.getBiometricType())")
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.secondary.opacity(0.1))
-                        .foregroundColor(.primary)
-                        .cornerRadius(10)
                     }
-                    .padding(.horizontal)
                 }
                 
                 VStack(spacing: 15) {

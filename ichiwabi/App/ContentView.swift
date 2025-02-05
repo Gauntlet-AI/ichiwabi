@@ -1,10 +1,26 @@
 import SwiftUI
 import PhotosUI
 import SwiftData
+import FirebaseStorage
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
+    @Query(sort: \User.createdAt) private var users: [User]
     @State private var authService: AuthenticationService?
+    @State private var userService: UserSyncService?
+    @State private var storageService = StorageService()
+    @State private var selectedProfilePhoto: PhotosPickerItem?
+    @State private var profilePhotoData: Data?
+    @State private var showEditProfile = false
+    @State private var showError = false
+    @State private var errorMessage = ""
+    @State private var isSaving = false
+    @State private var showSignOutAlert = false
+    @State private var showOnboarding = false
+    
+    private var currentUser: User? {
+        users.first
+    }
     
     var body: some View {
         Group {
@@ -36,9 +52,14 @@ struct MainAppView: View {
     @Query(sort: \User.createdAt) private var users: [User]
     @State private var showSignOutAlert = false
     @State private var showOnboarding = false
+    @State private var userService: UserSyncService?
+    @State private var storageService = StorageService()
     @State private var selectedProfilePhoto: PhotosPickerItem?
     @State private var profilePhotoData: Data?
     @State private var showEditProfile = false
+    @State private var showError = false
+    @State private var errorMessage = ""
+    @State private var isSaving = false
     
     private var currentUser: User? {
         users.first
@@ -162,6 +183,7 @@ struct MainAppView: View {
                             Section {
                                 NavigationLink {
                                     BiometricSettingsView()
+                                        .environment(authService)
                                 } label: {
                                     HStack {
                                         Image(systemName: "faceid")
@@ -187,7 +209,40 @@ struct MainAppView: View {
                     Task {
                         if let data = try? await newItem?.loadTransferable(type: Data.self) {
                             profilePhotoData = data
-                            // TODO: Implement photo upload to Firebase Storage
+                            // Upload photo to Firebase Storage
+                            do {
+                                isSaving = true
+                                
+                                // Initialize UserSyncService if needed
+                                if userService == nil {
+                                    userService = UserSyncService(modelContext: modelContext)
+                                }
+                                
+                                guard let service = userService else {
+                                    throw AuthError.unknown
+                                }
+                                
+                                guard let currentUser = currentUser else {
+                                    throw AuthError.notAuthenticated
+                                }
+                                
+                                // Upload the photo
+                                let downloadURL = try await storageService.uploadProfilePhoto(
+                                    userId: currentUser.id,
+                                    imageData: data
+                                )
+                                
+                                // Update the user model
+                                currentUser.avatarURL = downloadURL
+                                currentUser.updatedAt = Date()
+                                
+                                // Sync with Firestore
+                                try await service.sync(currentUser)
+                            } catch {
+                                showError = true
+                                errorMessage = error.localizedDescription
+                            }
+                            isSaving = false
                         }
                     }
                 }
@@ -219,6 +274,19 @@ struct MainAppView: View {
                     initialUsername: user.username,
                     initialDisplayName: user.displayName
                 )
+            }
+        }
+        .alert("Error", isPresented: $showError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(errorMessage)
+        }
+        .overlay {
+            if isSaving {
+                ProgressView()
+                    .padding()
+                    .background(Color.secondary.opacity(0.1))
+                    .cornerRadius(8)
             }
         }
     }

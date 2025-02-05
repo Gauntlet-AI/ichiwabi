@@ -40,7 +40,7 @@ final class AuthenticationService {
     let context: ModelContext
     private let syncService: UserSyncService
     private var currentNonce: String?
-    private let biometricService = BiometricAuthService()
+    let biometricService = BiometricAuthService()
     private let defaults = UserDefaults.standard
     private let lastSignedInEmailKey = "lastSignedInEmail"
     
@@ -86,15 +86,40 @@ final class AuthenticationService {
     }
     
     func signIn(email: String, password: String) async throws {
+        // First sign in
         try await auth.signIn(withEmail: email, password: password)
-        // Store email for biometric auth
+        
+        // If successful, store email for biometric auth
         defaults.set(email, forKey: lastSignedInEmailKey)
+        
+        // Store the authentication token securely
+        if let user = auth.currentUser {
+            let token = try await user.getIDToken()
+            try storeAuthToken(token)
+        }
     }
     
     func signOut() throws {
+        print("🔐 Signing out...")
+        // First sign out from Firebase
         try auth.signOut()
+        
         // Clear stored email
         defaults.removeObject(forKey: lastSignedInEmailKey)
+        
+        // Clear stored auth token from keychain
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: "FirebaseAuthToken",
+            kSecAttrAccessGroup as String: "\(Bundle.main.bundleIdentifier ?? "com.ichiwabi.app").keychain"
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        print("🔐 Keychain clear status: \(status)")
+        
+        // Reset biometric state
+        biometricService.resetSettings()
+        
+        print("🔐 Sign out complete")
     }
     
     func resetPassword(email: String) async throws {
@@ -195,8 +220,11 @@ final class AuthenticationService {
     }
     
     func authenticateWithBiometrics() async throws {
+        print("🔐 Starting biometric authentication...")
+        
         // Get stored email
         guard let email = defaults.string(forKey: lastSignedInEmailKey) else {
+            print("🔐 No stored email found")
             throw AuthError.notAuthenticated
         }
         
@@ -205,9 +233,24 @@ final class AuthenticationService {
         
         // Then try to sign in with the stored token
         if auth.currentUser == nil {
-            // We need to reauthenticate since we're signed out
-            // For security reasons, we'll throw an error and ask the user to sign in normally first
-            throw AuthError.notAuthenticated
+            // Try to retrieve the stored token
+            guard let token = try retrieveAuthToken() else {
+                print("🔐 No stored token found")
+                throw AuthError.biometricError("Please sign in with email and password first to set up biometric authentication")
+            }
+            
+            print("🔐 Attempting to sign in with stored token...")
+            // Sign in with the custom token
+            do {
+                try await auth.signIn(withCustomToken: token)
+                print("🔐 Successfully signed in with token")
+            } catch {
+                print("🔐 Error signing in with token: \(error)")
+                // If token sign-in fails, we need to sign in normally
+                throw AuthError.biometricError("Please sign in with email and password to refresh your authentication")
+            }
+        } else {
+            print("🔐 User is already signed in")
         }
     }
     
@@ -222,5 +265,62 @@ final class AuthenticationService {
     var isBiometricEnabled: Bool {
         get { biometricService.isBiometricEnabled }
         set { biometricService.isBiometricEnabled = newValue }
+    }
+    
+    private func storeAuthToken(_ token: String) throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: "FirebaseAuthToken",
+            kSecValueData as String: token.data(using: .utf8) as Any,
+            kSecAttrAccessGroup as String: "\(Bundle.main.bundleIdentifier ?? "com.ichiwabi.app").keychain",
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        ]
+        
+        print("🔐 Storing auth token in keychain...")
+        let status = SecItemAdd(query as CFDictionary, nil)
+        if status == errSecDuplicateItem {
+            // Token already exists, update it
+            let updateQuery: [String: Any] = [
+                kSecValueData as String: token.data(using: .utf8) as Any
+            ]
+            print("🔐 Updating existing token in keychain...")
+            let updateStatus = SecItemUpdate(query as CFDictionary, updateQuery as CFDictionary)
+            guard updateStatus == errSecSuccess else {
+                print("🔐 Error updating token in keychain: \(updateStatus)")
+                throw AuthError.biometricError("Failed to update authentication token")
+            }
+            print("🔐 Token updated successfully")
+        } else if status != errSecSuccess {
+            print("🔐 Error storing token in keychain: \(status)")
+            throw AuthError.biometricError("Failed to store authentication token")
+        } else {
+            print("🔐 Token stored successfully")
+        }
+    }
+    
+    private func retrieveAuthToken() throws -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: "FirebaseAuthToken",
+            kSecReturnData as String: true,
+            kSecAttrAccessGroup as String: "\(Bundle.main.bundleIdentifier ?? "com.ichiwabi.app").keychain",
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        ]
+        
+        print("🔐 Retrieving auth token from keychain...")
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        
+        if status == errSecSuccess,
+           let data = result as? Data,
+           let token = String(data: data, encoding: .utf8) {
+            print("🔐 Token retrieved successfully")
+            return token
+        }
+        
+        if status != errSecItemNotFound {
+            print("🔐 Error retrieving token from keychain: \(status)")
+        }
+        return nil
     }
 } 

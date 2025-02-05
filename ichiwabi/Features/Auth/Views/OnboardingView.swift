@@ -251,6 +251,11 @@ struct OnboardingView: View {
                         userId: currentUser.id,
                         imageData: imageData
                     )
+                    
+                    // Only update the URL if we successfully got one back
+                    if downloadURL.absoluteString.isEmpty {
+                        throw AuthError.unknown
+                    }
                     currentUser.avatarURL = downloadURL
                 }
                 

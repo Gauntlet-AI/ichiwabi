@@ -11,6 +11,8 @@ struct EditProfileView: View {
     @State private var isSaving = false
     @State private var showError = false
     @State private var errorMessage = ""
+    @State private var userService: UserSyncService?
+    @State private var storageService = StorageService()
     
     var body: some View {
         Form {
@@ -113,9 +115,24 @@ struct EditProfileView: View {
         Task {
             isSaving = true
             do {
-                // TODO: Upload photo to Firebase Storage if changed
+                // Initialize UserSyncService if needed
+                if userService == nil {
+                    userService = UserSyncService(modelContext: modelContext)
+                }
+                
+                guard let service = userService else {
+                    throw AuthError.unknown
+                }
+                
+                // Upload photo to Firebase Storage if changed
                 if let imageData = selectedImageData {
-                    // Implement photo upload
+                    let downloadURL = try await storageService.uploadProfilePhoto(
+                        userId: user.id,
+                        imageData: imageData
+                    )
+                    
+                    // Update the avatar URL
+                    user.avatarURL = downloadURL
                 }
                 
                 // Validate username
@@ -124,7 +141,8 @@ struct EditProfileView: View {
                 // Update timestamps
                 user.updatedAt = Date()
                 
-                // TODO: Sync with Firestore
+                // Sync with Firestore
+                try await service.sync(user)
                 
                 dismiss()
             } catch {

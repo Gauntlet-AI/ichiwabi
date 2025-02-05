@@ -36,22 +36,9 @@
 		6E1D685B2D5147BF00C91856 /* ichiwabiUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ichiwabiUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		6E839DB02D531704000F65BB /* Exceptions for "ichiwabi" folder in "ichiwabi" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-			);
-			target = 6E1D683D2D5147BE00C91856 /* ichiwabi */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		6E1D68402D5147BE00C91856 /* ichiwabi */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				6E839DB02D531704000F65BB /* Exceptions for "ichiwabi" folder in "ichiwabi" target */,
-			);
 			path = ichiwabi;
 			sourceTree = "<group>";
 		};
