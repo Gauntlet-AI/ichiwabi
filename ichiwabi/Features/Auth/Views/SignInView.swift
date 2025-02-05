@@ -100,7 +100,8 @@ private struct SignInContentView: View {
                 #endif
                 
                 Group {
-                    if !isSignUp && authService.isBiometricAuthAvailable() && authService.getBiometricType() != .none {
+                    let hasStoredEmail = UserDefaults.standard.string(forKey: AuthenticationService.lastSignedInEmailKey) != nil
+                    if !isSignUp && authService.isBiometricAuthAvailable() && authService.getBiometricType() != .none && hasStoredEmail {
                         Button(action: {
                             Task {
                                 do {
@@ -126,6 +127,10 @@ private struct SignInContentView: View {
                             print("🔐 Checking biometric sign-in availability")
                             print("🔐 Biometric available: \(authService.isBiometricAuthAvailable())")
                             print("🔐 Biometric type: \(authService.getBiometricType())")
+                            print("🔐 Has stored email: \(hasStoredEmail)")
+                            if let email = UserDefaults.standard.string(forKey: AuthenticationService.lastSignedInEmailKey) {
+                                print("🔐 Stored email: \(email)")
+                            }
                         }
                     }
                 }

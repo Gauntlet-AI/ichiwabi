@@ -1,3 +1,3 @@
-We are building a TikTok-like short video creation application. Our application will be Creator-focused, so we will initially be focusing on video creation.
+We are building a TikTok-like short video creation application focused on dream sharing. Our application will be Creator-focused, with an emphasis on video creation.
 
-Our unique proposition is to have new prompts every day that people can generate videos around. These questions are meant to promote an actual social aspect, like "What Pokemon type would you be and why". Every day there will be a new question to respond to, creating a ritual-based application.
+Our unique proposition is to provide a platform where people can record and share their dreams through short-form videos. This creates an intimate and engaging social experience, as dreams are deeply personal yet universally relatable experiences that everyone has. Users can capture and share their dream experiences while they're still fresh in their memory, creating a fascinating archive of human subconsciousness.

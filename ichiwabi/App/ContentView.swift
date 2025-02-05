@@ -32,7 +32,21 @@ struct ContentView: View {
                     SignInView()
                         .environment(authService)
                 case .signedIn:
-                    MainAppView(authService: authService)
+                    if let user = currentUser {
+                        if user.isProfileComplete {
+                            MainAppView(authService: authService)
+                        } else {
+                            OnboardingView(
+                                initialUsername: user.username,
+                                initialDisplayName: user.displayName
+                            )
+                        }
+                    } else {
+                        ProgressView()
+                            .onAppear {
+                                print("⚠️ User is signed in but no user data found")
+                            }
+                    }
                 }
             } else {
                 ProgressView()
@@ -51,12 +65,6 @@ struct MainAppView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \User.createdAt) private var users: [User]
     @State private var showSignOutAlert = false
-    @State private var showOnboarding = false
-    @State private var userService: UserSyncService?
-    @State private var storageService = StorageService()
-    @State private var selectedProfilePhoto: PhotosPickerItem?
-    @State private var profilePhotoData: Data?
-    @State private var showEditProfile = false
     @State private var showError = false
     @State private var errorMessage = ""
     @State private var isSaving = false
@@ -68,213 +76,35 @@ struct MainAppView: View {
     var body: some View {
         TabView {
             // Home Tab
-            NavigationView {
-                VStack {
-                    if let user = currentUser {
-                        Text("Welcome, \(user.displayName)")
-                            .font(.title)
-                            .padding()
-                        
-                        if !user.isProfileComplete {
-                            Text("Please complete your profile setup")
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    
-                    Spacer()
-                    
-                    // Development section
-                    Section("Development") {
-                        NavigationLink("Sync Tests") {
-                            SyncTestView()
-                        }
-                        
-                        Button("Reset App State") {
-                            Task {
-                                do {
-                                    try await resetAppState()
-                                } catch {
-                                    print("Error resetting app state: \(error)")
-                                }
-                            }
-                        }
-                        .foregroundColor(.red)
-                    }
-                }
-                .navigationTitle("ichiwabi")
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button(action: { showSignOutAlert = true }) {
-                            Image(systemName: "rectangle.portrait.and.arrow.right")
-                        }
-                    }
-                }
+            NavigationStack {
+                HomeView(userId: currentUser?.id ?? "")
             }
             .tabItem {
                 Label("Home", systemImage: "house")
             }
             
             // Profile Tab
-            NavigationView {
-                ScrollView {
-                    VStack(spacing: 24) {
-                        if let user = currentUser {
-                            // Profile Header
-                            VStack(spacing: 16) {
-                                // Profile Photo
-                                PhotosPicker(selection: $selectedProfilePhoto, matching: .images) {
-                                    if let imageData = profilePhotoData,
-                                       let uiImage = UIImage(data: imageData) {
-                                        Image(uiImage: uiImage)
-                                            .resizable()
-                                            .scaledToFill()
-                                            .frame(width: 120, height: 120)
-                                            .clipShape(Circle())
-                                            .overlay(editPhotoOverlay)
-                                    } else if let avatarURL = user.avatarURL {
-                                        AsyncImage(url: avatarURL) { image in
-                                            image
-                                                .resizable()
-                                                .scaledToFill()
-                                        } placeholder: {
-                                            ProgressView()
-                                        }
-                                        .frame(width: 120, height: 120)
-                                        .clipShape(Circle())
-                                        .overlay(editPhotoOverlay)
-                                    } else {
-                                        Image(systemName: "person.circle.fill")
-                                            .resizable()
-                                            .frame(width: 120, height: 120)
-                                            .foregroundColor(.gray)
-                                            .overlay(editPhotoOverlay)
-                                    }
-                                }
-                                
-                                // User Info
-                                Text(user.displayName)
-                                    .font(.title)
-                                Text("@\(user.username)")
-                                    .foregroundColor(.secondary)
-                                
-                                if let catchphrase = user.catchphrase {
-                                    Text(catchphrase)
-                                        .padding(.horizontal)
-                                        .multilineTextAlignment(.center)
-                                }
-                            }
-                            .padding()
-                            
-                            // Edit Profile Button
-                            Button(action: { showEditProfile = true }) {
-                                HStack {
-                                    Image(systemName: "pencil")
-                                    Text("Edit Profile")
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(Color.accentColor)
-                                .foregroundColor(.white)
-                                .cornerRadius(10)
-                            }
-                            .padding(.horizontal)
-                            
-                            // Security Settings
-                            Section {
-                                NavigationLink {
-                                    BiometricSettingsView()
-                                        .environment(authService)
-                                } label: {
-                                    HStack {
-                                        Image(systemName: "faceid")
-                                        Text("Biometric Authentication")
-                                    }
-                                }
-                            } header: {
-                                Text("Security")
-                            }
-                            .padding(.horizontal)
-                        }
-                    }
-                }
-                .navigationTitle("Profile")
-                .sheet(isPresented: $showEditProfile) {
-                    if let user = currentUser {
-                        NavigationView {
-                            EditProfileView(user: user)
-                        }
-                    }
-                }
-                .onChange(of: selectedProfilePhoto) { newItem in
-                    Task {
-                        if let data = try? await newItem?.loadTransferable(type: Data.self) {
-                            profilePhotoData = data
-                            // Upload photo to Firebase Storage
-                            do {
-                                isSaving = true
-                                
-                                // Initialize UserSyncService if needed
-                                if userService == nil {
-                                    userService = UserSyncService(modelContext: modelContext)
-                                }
-                                
-                                guard let service = userService else {
-                                    throw AuthError.unknown
-                                }
-                                
-                                guard let currentUser = currentUser else {
-                                    throw AuthError.notAuthenticated
-                                }
-                                
-                                // Upload the photo
-                                let downloadURL = try await storageService.uploadProfilePhoto(
-                                    userId: currentUser.id,
-                                    imageData: data
-                                )
-                                
-                                // Update the user model
-                                currentUser.avatarURL = downloadURL
-                                currentUser.updatedAt = Date()
-                                
-                                // Sync with Firestore
-                                try await service.sync(currentUser)
-                            } catch {
-                                showError = true
-                                errorMessage = error.localizedDescription
-                            }
-                            isSaving = false
-                        }
-                    }
-                }
+            NavigationStack {
+                SettingsView()
             }
             .tabItem {
-                Label("Profile", systemImage: "person")
+                Label("Settings", systemImage: "gear")
             }
         }
         .alert("Sign Out", isPresented: $showSignOutAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Sign Out", role: .destructive) {
-                do {
-                    try authService.signOut()
-                } catch {
-                    print("Error signing out: \(error)")
+                Task {
+                    do {
+                        try await resetAppState()
+                    } catch {
+                        showError = true
+                        errorMessage = error.localizedDescription
+                    }
                 }
             }
         } message: {
             Text("Are you sure you want to sign out?")
-        }
-        .onAppear {
-            if let user = currentUser, !user.isProfileComplete {
-                showOnboarding = true
-            }
-        }
-        .sheet(isPresented: $showOnboarding) {
-            if let user = currentUser {
-                OnboardingView(
-                    initialUsername: user.username,
-                    initialDisplayName: user.displayName
-                )
-            }
         }
         .alert("Error", isPresented: $showError) {
             Button("OK", role: .cancel) { }

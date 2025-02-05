@@ -36,13 +36,14 @@ final class AuthenticationService {
     }
     
     // MARK: - Properties
+    static let lastSignedInEmailKey = "lastSignedInEmail"
+    
     private let auth = Auth.auth()
     let context: ModelContext
     private let syncService: UserSyncService
     private var currentNonce: String?
     let biometricService = BiometricAuthService()
     private let defaults = UserDefaults.standard
-    private let lastSignedInEmailKey = "lastSignedInEmail"
     
     var authState: AuthState = .loading
     var currentUser: User?
@@ -57,11 +58,14 @@ final class AuthenticationService {
         }
     }
     
+    private var authStateHandle: AuthStateDidChangeListenerHandle?
+    
     private func setupAuthStateHandler() {
-        auth.addStateDidChangeListener { [weak self] _, user in
+        authStateHandle = auth.addStateDidChangeListener { [weak self] _, user in
             Task { @MainActor in
                 guard let self = self else { return }
-                if let user = user {
+                if let firebaseUser = user {
+                    print("🔐 User signed in: \(firebaseUser.uid)")
                     self.authState = .signedIn
                     do {
                         try await self.syncService.syncCurrentUser()
@@ -69,6 +73,7 @@ final class AuthenticationService {
                         print("Error syncing user: \(error)")
                     }
                 } else {
+                    print("🔐 User signed out")
                     self.authState = .signedOut
                     self.currentUser = nil
                 }
@@ -90,7 +95,7 @@ final class AuthenticationService {
         try await auth.signIn(withEmail: email, password: password)
         
         // If successful, store email for biometric auth
-        defaults.set(email, forKey: lastSignedInEmailKey)
+        defaults.set(email, forKey: AuthenticationService.lastSignedInEmailKey)
         
         // Store the authentication token securely
         if let user = auth.currentUser {
@@ -101,11 +106,17 @@ final class AuthenticationService {
     
     func signOut() throws {
         print("🔐 Signing out...")
+        // Remove auth state listener
+        if let handle = authStateHandle {
+            auth.removeStateDidChangeListener(handle)
+            authStateHandle = nil
+        }
+        
         // First sign out from Firebase
         try auth.signOut()
         
         // Clear stored email
-        defaults.removeObject(forKey: lastSignedInEmailKey)
+        defaults.removeObject(forKey: AuthenticationService.lastSignedInEmailKey)
         
         // Clear stored auth token from keychain
         let query: [String: Any] = [
@@ -146,9 +157,10 @@ final class AuthenticationService {
             }
             
             let credential = OAuthProvider.credential(
-                withProviderID: "apple.com",
+                providerID: AuthProviderID.apple,
                 idToken: idTokenString,
-                rawNonce: nonce
+                rawNonce: nonce,
+                accessToken: nil
             )
             
             try await auth.signIn(with: credential)
@@ -161,26 +173,44 @@ final class AuthenticationService {
     // MARK: - Validation
     
     func validatePassword(_ password: String) -> Bool {
+        print("🔐 Validating password for security requirements...")
+        
         // At least 8 characters
-        guard password.count >= 8 else { return false }
+        guard password.count >= 8 else {
+            print("🔐 Password validation failed: too short")
+            return false
+        }
         
         // At least one uppercase letter
-        guard password.contains(where: { $0.isUppercase }) else { return false }
+        guard password.contains(where: { $0.isUppercase }) else {
+            print("🔐 Password validation failed: missing uppercase letter")
+            return false
+        }
         
         // At least one number
-        guard password.contains(where: { $0.isNumber }) else { return false }
+        guard password.contains(where: { $0.isNumber }) else {
+            print("🔐 Password validation failed: missing number")
+            return false
+        }
         
         // At least one symbol
         let symbols = CharacterSet.punctuationCharacters.union(.symbols)
-        guard password.unicodeScalars.contains(where: symbols.contains) else { return false }
+        guard password.unicodeScalars.contains(where: symbols.contains) else {
+            print("🔐 Password validation failed: missing symbol")
+            return false
+        }
         
+        print("🔐 Password validation passed")
         return true
     }
     
     func validateEmail(_ email: String) -> Bool {
+        print("🔐 Validating email format: \(email)")
         let emailRegex = "[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,64}"
         let emailPredicate = NSPredicate(format: "SELF MATCHES %@", emailRegex)
-        return emailPredicate.evaluate(with: email)
+        let isValid = emailPredicate.evaluate(with: email)
+        print("🔐 Email validation \(isValid ? "passed" : "failed")")
+        return isValid
     }
     
     func validateUsername(_ username: String) -> Bool {
@@ -223,7 +253,7 @@ final class AuthenticationService {
         print("🔐 Starting biometric authentication...")
         
         // Get stored email
-        guard let email = defaults.string(forKey: lastSignedInEmailKey) else {
+        guard defaults.string(forKey: AuthenticationService.lastSignedInEmailKey) != nil else {
             print("🔐 No stored email found")
             throw AuthError.notAuthenticated
         }

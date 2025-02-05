@@ -44,7 +44,7 @@ struct EditProfileView: View {
                         }
                         
                         Text("Change Photo")
-                            .foregroundColor(.accentColor)
+                            .foregroundColor(.black)
                     }
                 }
             }
@@ -61,7 +61,7 @@ struct EditProfileView: View {
                     get: { user.catchphrase ?? "" },
                     set: { user.catchphrase = $0.isEmpty ? nil : $0 }
                 ))
-                .onChange(of: user.catchphrase) { newValue in
+                .onChange(of: user.catchphrase) { oldValue, newValue in
                     if let catchphrase = newValue, catchphrase.count > 50 {
                         user.catchphrase = String(catchphrase.prefix(50))
                     }
@@ -81,17 +81,19 @@ struct EditProfileView: View {
                 Button("Cancel") {
                     dismiss()
                 }
+                .foregroundColor(.black)
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button("Save") {
                     saveProfile()
                 }
+                .foregroundColor(.black)
                 .disabled(isSaving)
             }
         }
-        .onChange(of: selectedItem) { newItem in
+        .onChange(of: selectedItem) { oldValue, newValue in
             Task {
-                if let data = try? await newItem?.loadTransferable(type: Data.self) {
+                if let data = try? await newValue?.loadTransferable(type: Data.self) {
                     selectedImageData = data
                 }
             }

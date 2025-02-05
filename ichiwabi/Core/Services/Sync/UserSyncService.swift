@@ -55,7 +55,7 @@ final class UserSyncService: BaseSyncService<User> {
     @MainActor
     func verifySwiftDataSetup() async throws {
         print("🔍 Verifying SwiftData setup")
-        print("🔍 Current thread: \(Thread.current.isMainThread ? "Main thread" : "Background thread")")
+        print("🔍 Current thread: Main thread")
         
         // Since context is not optional in BaseSyncService, we'll just verify it exists
         print("🔍 Context: \(context)")
@@ -142,6 +142,7 @@ final class UserSyncService: BaseSyncService<User> {
                 print("🔍 Found existing user in SwiftData: \(localUser.id)")
                 print("🔍 Username: \(localUser.username)")
                 print("🔍 Sync status: \(localUser.syncStatus)")
+                print("🔍 Profile complete: \(localUser.isProfileComplete)")
                 
                 do {
                     let docRef = Firestore.firestore().collection(User.collectionPath).document(currentUser.uid)
@@ -151,9 +152,17 @@ final class UserSyncService: BaseSyncService<User> {
                     if document.exists, let data = document.data() {
                         print("🔍 Found Firestore data, updating local user")
                         let firestoreUser = try User.fromFirestoreData(data, id: currentUser.uid)
-                        try await localUser.mergeChanges(from: firestoreUser)
-                        try await sync(localUser)
+                        
+                        // Preserve local profile completion state if it's true
+                        if localUser.isProfileComplete {
+                            firestoreUser.isProfileComplete = true
+                        }
+                        
+                        // Store the merged changes
+                        let updatedUser = try localUser.mergeChanges(from: firestoreUser)
+                        try await sync(updatedUser)
                         print("🔍 Local user updated from Firestore")
+                        print("🔍 Final profile complete state: \(localUser.isProfileComplete)")
                     } else {
                         print("🔍 No Firestore data, syncing local user to Firestore")
                         try await sync(localUser)

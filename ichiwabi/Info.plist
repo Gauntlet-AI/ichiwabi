@@ -29,5 +29,7 @@
     </array>
     <key>NSFaceIDUsageDescription</key>
     <string>ichiwabi uses Face ID to securely sign you into your account.</string>
+    <key>NSUserNotificationsUsageDescription</key>
+    <string>ichiwabi sends notifications to remind you to record your dreams while they're still fresh in your mind.</string>
 </dict>
 </plist> 

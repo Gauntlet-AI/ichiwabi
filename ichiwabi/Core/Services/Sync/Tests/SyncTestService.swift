@@ -2,13 +2,14 @@ import Foundation
 import SwiftData
 import FirebaseFirestore
 
+@MainActor
 class SyncTestService {
     private let modelContext: ModelContext
     private var userService: UserSyncService
     
-    init(modelContext: ModelContext) async {
+    init(modelContext: ModelContext) {
         self.modelContext = modelContext
-        self.userService = await UserSyncService(modelContext: modelContext)
+        self.userService = UserSyncService(modelContext: modelContext)
     }
     
     // MARK: - Test Cases
@@ -36,10 +37,12 @@ class SyncTestService {
             let document = try await docRef.getDocument()
             
             guard document.exists,
-                  let data = document.data(),
-                  let syncedUser = try? User.fromFirestoreData(data, id: user.id) else {
+                  let data = document.data() else {
                 return .failure("Failed to verify user in Firestore")
             }
+            
+            // Verify we can parse the Firestore data
+            _ = try User.fromFirestoreData(data, id: user.id)
             
             // Verify local storage
             let descriptor = FetchDescriptor<User>(

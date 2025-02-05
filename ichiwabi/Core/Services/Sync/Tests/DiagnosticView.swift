@@ -116,7 +116,7 @@ struct DiagnosticView: View {
     private func testModelContainer() async {
         await MainActor.run {
             do {
-                let container = try ModelContainer(for: Schema([
+                _ = try ModelContainer(for: Schema([
                     User.self,
                     Settings.self,
                     VideoResponse.self,
@@ -143,19 +143,11 @@ struct DiagnosticView: View {
     
     private func testModelContext() async {
         await MainActor.run {
-            if modelContext != nil {
-                addResult(
-                    "Model Context Test",
-                    status: .success,
-                    message: "Successfully accessed model context"
-                )
-            } else {
-                addResult(
-                    "Model Context Test",
-                    status: .failure,
-                    message: "Failed to access model context"
-                )
-            }
+            addResult(
+                "Model Context Test",
+                status: .success,
+                message: "Successfully accessed model context"
+            )
         }
     }
     
@@ -238,7 +230,7 @@ struct DiagnosticView: View {
     private func testFirebaseConnection() async {
         do {
             let db = Firestore.firestore()
-            let testDoc = try await db.collection("_diagnostics").document("test").setData([
+            try await db.collection("_diagnostics").document("test").setData([
                 "timestamp": FieldValue.serverTimestamp()
             ])
             

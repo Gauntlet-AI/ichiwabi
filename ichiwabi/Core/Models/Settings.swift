@@ -6,7 +6,7 @@ import Observation
 @Model
 final class Settings {
     // Core properties
-    let id: String            // Unique identifier (usually user's ID)
+    @Attribute(.unique) var id: String            // Unique identifier (usually user's ID)
     var updatedAt: Date
     
     // Sync properties

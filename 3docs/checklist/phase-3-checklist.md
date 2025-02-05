@@ -1,65 +1,88 @@
-# Phase 3 Prompt & Daily Ritual Checklist
+# Phase 3 Dream Recording Core Checklist
 
-## Firestore Prompt Structure
-- [ ] Design Firestore prompt collection schema
-  - [ ] Basic prompt structure (id, text, date)
-  - [ ] Future-proof schema for potential features (categories, user-generated prompts)
-- [ ] Create initial set of prompts
-- [ ] Implement prompt scheduling system
-- [ ] Set up Cloud Functions for daily prompt activation
+## Firestore Dream Structure
+- [x] Design Firestore dream collection schema
+  - [x] Basic dream structure (id, title, transcript, recorded_date, dream_date)
+  - [x] Future-proof schema for potential features (tags, categories)
+  - [x] Support for multiple dreams per day
+- [x] Create dream management service
+- [x] Set up offline support with SwiftData
 
-## Time Management
-- [ ] Implement JST (Japan Standard Time) based system
-  - [ ] Set up server-side timestamp management
-  - [ ] Handle timezone conversions
-- [ ] Create prompt availability window logic
-  - [ ] Activate new prompts at 00:00 JST
-  - [ ] Deactivate prompts after 24 hours
-- [ ] Implement countdown timer functionality
+## Time & Date Management
+- [x] Implement local timezone-based system
+  - [x] Set up proper date handling
+  - [x] Store both recording time and dream date
+  - [x] Add timezone awareness to date operations
+- [x] Create date modification functionality
+  - [x] Allow users to adjust dream date
+  - [x] Validate date selections
+  - [x] Handle date-based organization
 
-## Push Notification System
-- [ ] Set up Firebase Cloud Messaging
-- [ ] Configure APN (Apple Push Notification) certificates
-- [ ] Implement notification scheduling for 00:00 JST
-- [ ] Create notification payload structure
-- [ ] Handle notification permissions
-- [ ] Test notification delivery across time zones
+## Calendar Integration
+- [x] Design and implement calendar view
+  - [x] Show days with recorded dreams
+  - [x] Support multiple dreams per day
+  - [x] Display streak visualization
+- [x] Implement dream browsing by date
+  - [x] Create day/week/month views
+  - [x] Add quick navigation features
+  - [x] Link to library view for date filtering
+- [x] Create streak tracking system
+  - [x] Track days with at least one dream
+  - [x] Visualize recording streaks
+  - [x] Handle date changes properly
+
+## Morning Notification System
+- [x] Configure APN (Apple Push Notification) certificates
+- [x] Implement morning reminder notification
+- [x] Create notification settings UI
+- [x] Respect device notification settings
+- [x] Create engaging notification content
+- [x] Handle notification permissions
 
 ## Home Screen Implementation
-- [ ] Design and implement home screen UI
-  - [ ] Display current user info (name, catch phrase)
-  - [ ] Show streak counter
-  - [ ] Add response button
-  - [ ] Add video library access
-- [ ] Create countdown timer component
-- [ ] Implement prompt display
-- [ ] Handle prompt state (responded/not responded)
-
-## Streak Management
-- [ ] Design streak tracking system
-  - [ ] Create streak counter in user model
-  - [ ] Implement streak calculation logic
-- [ ] Set up streak verification system
-  - [ ] Verify responses within 24-hour window
-  - [ ] Update streak count based on responses
-- [ ] Create achievement-ready architecture
-  - [ ] Design extensible achievement system structure
-  - [ ] Prepare hooks for future achievement implementation
+- [x] Design and implement home screen UI
+  - [x] Display recent dreams
+  - [x] Show calendar/streak visualization
+  - [x] Add quick record button
+  - [x] Add dream library access
+- [PROGRESS] Create dream entry flow
+  - [PROGRESS] Video capture and selection
+    - [x] Implement camera recording (front/back)
+    - [x] Add 3-minute time limit
+    - [x] Allow video library selection
+    - [x] Add recording preview
+    - [x] Support retaking/reselecting
+  - [PROGRESS] Video processing
+    - [x] Add timeline visualization
+    - [x] Preview trimmed content
+    - [x] Implement trimming interface
+    - [x] Handle video compression
+  - [PROGRESS] Dream details entry
+    - [x] Auto-transcribe video content
+    - [x] Pre-fill current date
+    - [x] Allow editing title/transcript/date
+    - [x] Validate input fields
+  - [PROGRESS] Upload handling
+    - [x] Save locally first
+    - [x] Upload in background
+    - [x] Show upload progress
+    - [x] Handle upload errors
 
 ## Data Synchronization
-- [ ] Implement SwiftData-Firestore sync for prompts
-- [ ] Create caching system for offline access
-- [ ] Handle prompt state persistence
-- [ ] Implement response tracking system
+- [x] Implement SwiftData-Firestore sync for dreams
+- [x] Create caching system for offline access
+- [x] Handle dream state persistence
+- [x] Implement conflict resolution
 
 ---
 
 ## Warnings and Considerations
-- ⚠️ Ensure robust handling of timezone edge cases
-- ⚠️ Plan for scalability in prompt storage and delivery
-- ⚠️ Consider network connectivity issues for prompt delivery
-- ⚠️ Make sure notification timing is precise across devices
-- ⚠️ Build flexible prompt schema to support future features
-- ⚠️ Consider rate limiting for prompt responses
-- ⚠️ Ensure proper error handling for failed notifications
-- ⚠️ Test streak calculation thoroughly across date boundaries 
+- ⚠️ Ensure proper handling of timezone changes
+- ⚠️ Plan for scalability in dream storage
+- ⚠️ Consider offline-first approach for morning recordings
+- ⚠️ Handle video storage efficiently
+- ⚠️ Build flexible dream schema to support future features
+- ⚠️ Consider privacy implications of dream content
+- ⚠️ Ensure proper error handling for failed uploads
+- ⚠️ Test calendar view with various amounts of data 

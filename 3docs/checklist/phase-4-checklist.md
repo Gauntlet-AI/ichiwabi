@@ -9,40 +9,51 @@
 - [ ] Document compression trade-offs
   - [ ] Quality vs file size
   - [ ] Processing time impact
+- [ ] Configure video parameters
+  - [ ] Set initial 64-second maximum duration (configurable)
+  - [ ] Define video quality requirements
+  - [ ] Plan AI video generation integration
 
 ## Video Recording Implementation
 - [ ] Set up AVFoundation camera configuration
-  - [ ] Implement 64-second maximum recording duration
+  - [ ] Implement configurable maximum duration (initial: 64 seconds)
   - [ ] Configure front and back camera support
   - [ ] Add camera switching functionality
-  - [ ] Implement flash/torch control for low light
-- [ ] Create video upload functionality
-  - [ ] Add file picker for video selection
-  - [ ] Validate uploaded video length and format
+  - [ ] Add manual low-light mode (Amazon integration)
+  - [ ] Implement notification-based quick-start recording
+- [ ] Create dream entry options
+  - [ ] Add video recording flow
+  - [ ] Implement text-only dream entry
+  - [ ] Add UI indicators encouraging video recording
+  - [ ] Prepare for AI video generation integration
 - [ ] Implement recording UI
   - [ ] Create recording timer display
   - [ ] Add camera switch button
-  - [ ] Add flash/torch toggle
+  - [ ] Add low-light mode toggle
   - [ ] Design upload option UI
+  - [ ] Create text-only entry interface
 
 ## Basic Video Editing
 - [ ] Implement video trimming
   - [ ] Create trim UI with preview
-  - [ ] Handle trim operations
+  - [ ] Handle trim operations within 64-second limit
 - [ ] Create video cutting functionality
   - [ ] Design cut UI with preview
   - [ ] Implement cut operations
 - [ ] Add re-record functionality
   - [ ] Handle state management for recording flow
   - [ ] Implement discard and restart option
+- [ ] Add basic filters
+  - [ ] Integrate Amazon's low-light enhancement
+  - [ ] Add dream-appropriate visual effects
 
 ## Video Processing
 - [ ] Research and document OpenShot integration options
   - [ ] Compare on-device vs cloud processing
   - [ ] Document processing requirements
 - [ ] Implement watermark system
-  - [ ] Create watermark placement logic
-  - [ ] Add prompt text to watermark template
+  - [ ] Integrate provided watermark design
+  - [ ] Add dream date to watermark
   - [ ] Handle different video dimensions
 - [ ] Set up video compression
   - [ ] Research optimal compression settings
@@ -50,8 +61,9 @@
 
 ## Storage & Upload
 - [ ] Configure Firebase Storage
-  - [ ] Set up storage rules
+  - [ ] Set up storage rules for both video and text entries
   - [ ] Create upload service
+  - [ ] Implement background upload support
 - [ ] Implement upload progress tracking
   - [ ] Create progress UI
   - [ ] Add network status monitoring
@@ -59,6 +71,7 @@
 - [ ] Handle upload failures
   - [ ] Create error messaging system
   - [ ] Implement state restoration on failure
+  - [ ] Add offline queue management
 
 ---
 
@@ -69,5 +82,8 @@
 - ⚠️ Firebase Storage costs will scale with video size and user count
 - ⚠️ Need to handle interrupted uploads gracefully
 - ⚠️ Consider privacy permissions (camera, photo library)
-- ⚠️ Test recording and processing with various lighting conditions
-- ⚠️ Ensure proper memory management during video processing 
+- ⚠️ Test recording in low-light conditions with Amazon solution
+- ⚠️ Ensure proper memory management during video processing
+- ⚠️ Design notification-based recording to be reliable and quick
+- ⚠️ Plan storage structure to support both video and text-only entries
+- ⚠️ Prepare video processing pipeline for future AI integration 

@@ -1,69 +1,76 @@
-# Phase 5 Streak Management Checklist
+# Phase 5 Calendar & Dream Tracking Checklist
 
 ## Considerations (Require Decisions)
-- [ ] Determine streak history retention policy
-  - [ ] Document storage implications
-  - [ ] Consider analytics requirements
-- [ ] Evaluate local streak caching strategy
-  - [ ] Assess offline functionality needs
-  - [ ] Consider SwiftData implementation
-- [ ] Design cross-device synchronization approach
-  - [ ] Document potential race conditions
-  - [ ] Plan conflict resolution strategy
+- [ ] Determine data retention and cleanup strategy
+  - [ ] Consider storage implications for long-term users
+  - [ ] Evaluate performance impact of growing dream collections
+  - [ ] Plan archival strategy if needed
 
-## Streak Data Structure
-- [ ] Create streak tracking model
-  - [ ] Current streak counter
-  - [ ] Total videos counter
-  - [ ] Last response timestamp
-- [ ] Set up Firestore streak collection
-  - [ ] Design document structure
-  - [ ] Implement security rules
-- [ ] Create streak update service
-  - [ ] Handle increment logic
-  - [ ] Handle streak reset logic
+## Calendar Implementation
+- [ ] Design monthly calendar view
+  - [ ] Create basic calendar grid layout
+  - [ ] Implement month navigation (prev/next)
+  - [ ] Add dream count indicators per day
+  - [ ] Handle different month lengths properly
+- [ ] Implement GitHub-style streak visualization
+  - [ ] Design color/intensity scheme for dream frequency
+  - [ ] Create visualization component
+  - [ ] Handle streak calculations
+  - [ ] Update visualization in real-time with new entries
 
-## Streak Logic Implementation
-- [ ] Implement core streak rules
-  - [ ] Verify response within JST day
-  - [ ] Check for duplicate responses
-  - [ ] Handle streak reset conditions
-- [ ] Create streak calculation service
-  - [ ] Implement JST-based day boundary logic
-  - [ ] Handle timezone conversions
-- [ ] Set up real-time streak updates
-  - [ ] Configure Firestore listeners
-  - [ ] Implement immediate UI updates
+## Dream Grid View
+- [ ] Implement daily dream grid
+  - [ ] Create grid layout for multiple dreams
+  - [ ] Add dream preview thumbnails
+  - [ ] Handle both video and text-only previews
+  - [ ] Implement smooth loading transitions
+- [ ] Add interaction handling
+  - [ ] Implement day selection
+  - [ ] Create dream detail view navigation
+  - [ ] Handle empty days gracefully
 
-## Notification System
-- [ ] Implement end-of-day reminder
-  - [ ] Configure 23:00 JST notification
-  - [ ] Create notification content
-  - [ ] Handle notification permissions
-- [ ] Set up notification triggers
-  - [ ] Check user response status
-  - [ ] Handle timezone calculations
-  - [ ] Implement do-not-disturb respect
+## Data Management
+- [ ] Implement calendar data structure
+  - [ ] Create efficient date-based indexing
+  - [ ] Handle timezone changes properly
+  - [ ] Optimize dream count calculations
+- [ ] Set up data fetching
+  - [ ] Implement month-based data loading
+  - [ ] Create caching strategy for viewed months
+  - [ ] Handle offline access to calendar data
+- [ ] Manage streak tracking
+  - [ ] Implement streak calculation logic
+  - [ ] Handle date changes and updates
+  - [ ] Ensure consistent counting of both video and text entries
 
-## UI Implementation
-- [ ] Design streak display components
-  - [ ] Create current streak counter
-  - [ ] Display total videos count
-- [ ] Implement streak update animations
-  - [ ] Design increment animation
-  - [ ] Design reset animation
-- [ ] Add streak status indicators
-  - [ ] Show active/broken state
-  - [ ] Display last response time
+## Performance Optimization
+- [ ] Implement lazy loading
+  - [ ] Load dream previews on-demand
+  - [ ] Cache frequently accessed months
+  - [ ] Optimize memory usage for grid view
+- [ ] Add loading states
+  - [ ] Create shimmer effects for loading content
+  - [ ] Handle partial data availability
+  - [ ] Implement smooth transitions
+
+## UI/UX Implementation
+- [ ] Design calendar interactions
+  - [ ] Create smooth month transitions
+  - [ ] Implement intuitive navigation gestures
+  - [ ] Add visual feedback for selections
+- [ ] Implement accessibility
+  - [ ] Add VoiceOver support for calendar
+  - [ ] Ensure proper navigation for grid view
+  - [ ] Include accessibility labels for dreams
 
 ---
 
 ## Warnings and Considerations
-- ⚠️ Ensure accurate timezone handling for JST calculations
-- ⚠️ Plan for scalability of streak tracking system
-- ⚠️ Consider Firebase read/write limitations with real-time updates
-- ⚠️ Handle edge cases around date boundary (23:59-00:01)
-- ⚠️ Ensure proper error handling for failed streak updates
-- ⚠️ Consider notification reliability across different iOS versions
-- ⚠️ Test streak logic thoroughly with different usage patterns
-- ⚠️ Monitor performance impact of real-time listeners 
+- ⚠️ Calendar performance may degrade with large amounts of dreams
+- ⚠️ Streak calculations must handle timezone edge cases
+- ⚠️ Memory management crucial for grid view with many videos
+- ⚠️ Need efficient caching strategy for smooth calendar navigation
+- ⚠️ Consider offline availability of calendar data
+- ⚠️ Ensure consistent dream count display across app
+- ⚠️ Handle device rotation and different screen sizes
+- ⚠️ Consider impact of future data cleanup on streak calculations 

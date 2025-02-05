@@ -35,7 +35,8 @@ class BaseSyncService<T> where T: PersistentModel & Observable & SyncableModel &
     /// Sync a single model instance to Firestore
     func sync(_ originalModel: T) async throws {
         guard isOnline else {
-            let modelCopy = try await updateLocalModel(originalModel, status: .pendingUpload)
+            // Update local model status and throw offline error
+            _ = try await updateLocalModel(originalModel, status: .pendingUpload)
             throw SyncError.offline
         }
         
@@ -134,12 +135,8 @@ class BaseSyncService<T> where T: PersistentModel & Observable & SyncableModel &
                     print("💫 Sync: Successfully synced model")
                 } catch {
                     print("💫 Sync: Error syncing model \(model.persistentModelID): \(error)")
-                    do {
-                        try await updateLocalModel(model, status: .error)
-                        print("💫 Sync: Updated model status to error")
-                    } catch {
-                        print("💫 Sync: Failed to update model status: \(error)")
-                    }
+                    _ = try await updateLocalModel(model, status: .error)
+                    print("💫 Sync: Updated model status to error")
                 }
             }
             
@@ -159,7 +156,7 @@ class BaseSyncService<T> where T: PersistentModel & Observable & SyncableModel &
         if let existingModel = existingModels.first(where: { $0.persistentModelID == model.persistentModelID }) {
             print("💫 Update: Found existing model")
             do {
-                var modelData = try await existingModel.toFirestoreData()
+                var modelData = try model.toFirestoreData()
                 modelData["syncStatus"] = status.rawValue
                 modelData["lastSyncedAt"] = Timestamp(date: Date())
                 let updatedModel = try T.fromFirestoreData(modelData, id: existingModel.persistentModelID)
@@ -175,7 +172,7 @@ class BaseSyncService<T> where T: PersistentModel & Observable & SyncableModel &
         
         print("💫 Update: Creating new model instance")
         do {
-            var modelData = try await model.toFirestoreData()
+            var modelData = try model.toFirestoreData()
             modelData["syncStatus"] = status.rawValue
             modelData["lastSyncedAt"] = Timestamp(date: Date())
             let newModel = try T.fromFirestoreData(modelData, id: model.persistentModelID)

@@ -77,6 +77,8 @@ struct OnboardingView: View {
                             saveBasicInfo()
                         }
                         .buttonStyle(.borderedProminent)
+                        .tint(.accentColor)
+                        .foregroundColor(.black)
                         .disabled(username.isEmpty || displayName.isEmpty || isSaving)
                     }
                     .padding()
@@ -109,14 +111,14 @@ struct OnboardingView: View {
                         ) {
                             Text("Select Photo")
                                 .padding()
-                                .background(Color.blue)
-                                .foregroundColor(.white)
+                                .background(Color.accentColor)
+                                .foregroundColor(.black)
                                 .cornerRadius(8)
                         }
                         
                         TextField("Catchphrase (optional)", text: $catchphrase)
                             .textFieldStyle(RoundedBorderTextFieldStyle())
-                            .onChange(of: catchphrase) { newValue in
+                            .onChange(of: catchphrase) { oldValue, newValue in
                                 if newValue.count > 50 {
                                     catchphrase = String(newValue.prefix(50))
                                 }
@@ -130,6 +132,8 @@ struct OnboardingView: View {
                             savePhotoAndCatchphrase()
                         }
                         .buttonStyle(.borderedProminent)
+                        .tint(.accentColor)
+                        .foregroundColor(.black)
                         .disabled(isSaving)
                     }
                     .padding()
@@ -168,6 +172,8 @@ struct OnboardingView: View {
                             completeOnboarding()
                         }
                         .buttonStyle(.borderedProminent)
+                        .tint(.accentColor)
+                        .foregroundColor(.black)
                         .disabled(!hasAcceptedTerms || isSaving)
                     }
                     .padding()
@@ -195,9 +201,9 @@ struct OnboardingView: View {
         .onAppear {
             userService = UserSyncService(modelContext: modelContext)
         }
-        .onChange(of: selectedItem) { newItem in
+        .onChange(of: selectedItem) { oldValue, newValue in
             Task {
-                if let data = try? await newItem?.loadTransferable(type: Data.self) {
+                if let data = try? await newValue?.loadTransferable(type: Data.self) {
                     selectedImageData = data
                 }
             }
@@ -287,11 +293,15 @@ struct OnboardingView: View {
                     throw AuthError.notAuthenticated
                 }
                 
-                currentUser.hasAcceptedTerms = true
+                // Mark profile as complete and terms as accepted
                 currentUser.isProfileComplete = true
+                currentUser.hasAcceptedTerms = hasAcceptedTerms
                 currentUser.updatedAt = Date()
                 
+                // Sync changes to Firestore
                 try await service.sync(currentUser)
+                
+                // Dismiss the onboarding view
                 dismiss()
             } catch {
                 showError = true

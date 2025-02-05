@@ -5,7 +5,7 @@ import FirebaseFirestore
 @Model
 final class VideoResponse {
     // Core properties
-    let id: String            // Firestore document ID
+    @Attribute(.unique) var id: String            // Firestore document ID
     var createdAt: Date
     var updatedAt: Date
     

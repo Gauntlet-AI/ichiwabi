@@ -2,13 +2,6 @@ import SwiftUI
 import SwiftData
 import FirebaseFirestore
 
-// Import models
-@preconcurrency import class ichiwabi.User
-@preconcurrency import class ichiwabi.Settings
-@preconcurrency import class ichiwabi.VideoResponse
-@preconcurrency import class ichiwabi.Prompt
-@preconcurrency import class ichiwabi.Comment
-
 class SyncTestViewModel: ObservableObject {
     private let modelContext: ModelContext
     @Published var testResults: [String] = []
@@ -25,8 +18,8 @@ class SyncTestViewModel: ObservableObject {
     }
     
     @MainActor
-    private func setup() async {
-        self.testService = await SyncTestService(modelContext: modelContext)
+    private func setup() {
+        self.testService = SyncTestService(modelContext: modelContext)
     }
     
     func runTests() {

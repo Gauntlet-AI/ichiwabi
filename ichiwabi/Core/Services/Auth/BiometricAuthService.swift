@@ -80,7 +80,11 @@ final class BiometricAuthService {
             return .touchID
         case .faceID:
             return .faceID
+        case .opticID:  // Added in iOS 17 for Vision Pro
+            print("🔐 Optic ID detected, treating as FaceID")
+            return .faceID
         @unknown default:
+            print("🔐 Unknown biometry type detected: \(type.rawValue), defaulting to none")
             return .none
         }
     }
