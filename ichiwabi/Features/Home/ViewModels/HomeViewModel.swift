@@ -43,10 +43,24 @@ final class HomeViewModel: ObservableObject {
     private var dreamService: DreamService?
     private let calendar = Calendar.current
     
-    init() {}
+    init() {
+        // Listen for dream updates
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(refreshData),
+            name: NSNotification.Name("DismissVideoTrimmer"),
+            object: nil
+        )
+    }
     
     func configure(modelContext: ModelContext, userId: String) {
         self.dreamService = DreamService(modelContext: modelContext, userId: userId)
+        Task {
+            await loadData()
+        }
+    }
+    
+    @objc func refreshData() {
         Task {
             await loadData()
         }

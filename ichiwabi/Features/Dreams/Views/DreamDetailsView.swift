@@ -1,119 +1,149 @@
 import SwiftUI
 import AVKit
+import SwiftData
 
 struct DreamDetailsView: View {
-    @StateObject private var viewModel: DreamDetailsViewModel
+    let videoURL: URL
+    let userId: String
+    @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.presentationMode) private var presentationMode
+    @StateObject private var viewModel: DreamDetailsViewModel
+    @State private var showingError = false
+    @State private var player: AVPlayer?
     
-    private let dateRange: ClosedRange<Date> = {
-        let calendar = Calendar.current
-        let now = Date()
-        let sixMonthsAgo = calendar.date(byAdding: .month, value: -6, to: now)!
-        let oneMonthAhead = calendar.date(byAdding: .month, value: 1, to: now)!
-        return sixMonthsAgo...oneMonthAhead
-    }()
-    
-    init(videoURL: URL, dreamService: DreamService, userId: String) {
+    init(videoURL: URL, userId: String) {
+        self.videoURL = videoURL
+        self.userId = userId
+        
+        // Initialize viewModel with a temporary DreamService
+        let tempContext: ModelContext
+        do {
+            let container = try ModelContainer(for: Dream.self)
+            tempContext = ModelContext(container)
+        } catch {
+            print("Failed to create temporary container: \(error)")
+            // Fallback to an in-memory container
+            let config = ModelConfiguration(isStoredInMemoryOnly: true)
+            do {
+                let container = try ModelContainer(for: Dream.self, configurations: config)
+                tempContext = ModelContext(container)
+            } catch {
+                fatalError("Failed to create even in-memory container: \(error)")
+            }
+        }
+        
         _viewModel = StateObject(wrappedValue: DreamDetailsViewModel(
             videoURL: videoURL,
-            dreamService: dreamService,
+            dreamService: DreamService(modelContext: tempContext, userId: userId),
             userId: userId
         ))
     }
     
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField("Title", text: $viewModel.title)
-                        .textInputAutocapitalization(.words)
-                } header: {
-                    Text("Dream Title")
-                } footer: {
-                    Text("Give your dream a memorable title")
-                }
-                
-                Section {
-                    DatePicker(
-                        "Dream Date",
-                        selection: $viewModel.dreamDate,
-                        in: dateRange,
-                        displayedComponents: [.date]
-                    )
-                } header: {
-                    Text("When did you have this dream?")
-                }
-                
-                Section {
-                    if viewModel.isTranscribing {
-                        HStack {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text("Transcribing audio...")
-                                .foregroundStyle(.secondary)
+        Form {
+            Section {
+                // Video preview
+                if let player = player {
+                    VideoPlayer(player: player)
+                        .aspectRatio(9/16, contentMode: .fit)
+                        .frame(maxHeight: 300)
+                        .onDisappear {
+                            player.pause()
                         }
-                    }
-                    
+                } else {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: 300)
+                }
+            }
+            
+            Section("Dream Details") {
+                TextField("Title", text: $viewModel.title)
+                    .textContentType(.none)
+                    .autocorrectionDisabled()
+                
+                DatePicker(
+                    "Dream Date",
+                    selection: $viewModel.dreamDate,
+                    displayedComponents: [.date]
+                )
+                
+                if viewModel.isTranscribing {
+                    ProgressView("Transcribing video...")
+                } else {
                     TextEditor(text: $viewModel.transcript)
                         .frame(minHeight: 100)
-                } header: {
-                    Text("Dream Description")
-                } footer: {
-                    Text("Describe your dream or edit the auto-generated transcript")
                 }
-                
+            }
+            
+            if viewModel.uploadProgress > 0 && viewModel.uploadProgress < 1 {
                 Section {
-                    VideoPlayer(player: AVPlayer(url: viewModel.videoURL))
-                        .frame(height: 200)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                } header: {
-                    Text("Dream Recording")
-                }
-            }
-            .navigationTitle("Dream Details")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                    .disabled(viewModel.isLoading)
-                }
-                
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        Task {
-                            try? await viewModel.saveDream()
-                            dismiss()
-                        }
-                    }
-                    .disabled(viewModel.isLoading || viewModel.title.isEmpty)
-                }
-            }
-            .alert("Error", isPresented: .constant(viewModel.error != nil)) {
-                Button("OK") {
-                    viewModel.error = nil
-                }
-            } message: {
-                if let error = viewModel.error {
-                    Text(error.localizedDescription)
-                }
-            }
-            .overlay {
-                if viewModel.isLoading {
-                    VStack {
-                        ProgressView("Saving dream...")
-                        if viewModel.uploadProgress > 0 {
-                            Text("\(Int(viewModel.uploadProgress * 100))% uploaded")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding()
-                    .background(.ultraThinMaterial)
-                    .cornerRadius(8)
+                    ProgressView("Uploading video...", value: viewModel.uploadProgress, total: 1.0)
                 }
             }
         }
+        .navigationTitle("New Dream")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") {
+                    dismiss()
+                }
+                .disabled(viewModel.isLoading)
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Save") {
+                    Task {
+                        do {
+                            print("💭 Saving dream...")
+                            try await viewModel.saveDream()
+                            print("💭 Dream saved successfully")
+                            // Dismiss both sheets
+                            dismiss()
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                NotificationCenter.default.post(name: NSNotification.Name("DismissVideoTrimmer"), object: nil)
+                            }
+                        } catch {
+                            print("❌ Error saving dream: \(error)")
+                            viewModel.error = error
+                            showingError = true
+                        }
+                    }
+                }
+                .disabled(viewModel.isLoading || viewModel.title.isEmpty)
+            }
+        }
+        .alert("Error", isPresented: $showingError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            if let error = viewModel.error {
+                Text(error.localizedDescription)
+            }
+        }
+        .overlay {
+            if viewModel.isLoading {
+                ProgressView("Saving dream...")
+                    .padding()
+                    .background(.ultraThinMaterial)
+                    .cornerRadius(8)
+            }
+        }
+        .onAppear {
+            // Update the DreamService with the actual modelContext
+            viewModel.updateDreamService(DreamService(modelContext: modelContext, userId: userId))
+            
+            // Initialize player
+            player = AVPlayer(url: videoURL)
+            player?.play()
+        }
+    }
+}
+
+#Preview {
+    NavigationStack {
+        DreamDetailsView(
+            videoURL: URL(string: "https://example.com/video.mp4")!,
+            userId: "preview_user_id"
+        )
     }
 } 

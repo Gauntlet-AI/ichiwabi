@@ -17,13 +17,20 @@ final class VideoResponse {
     var duration: TimeInterval
     var thumbnailURL: URL?
     var videoURL: URL?        // URL to cloud storage
-    var localVideoPath: String? // Path to local storage while processing
+    var localVideoPath: String? // Path to local storage relative to documents directory
     var transcription: String?
     
     // Status tracking
     var status: Status
     var uploadProgress: Double
     var processingMessage: String?
+    var isVideoAvailableLocally: Bool {
+        guard let localPath = localVideoPath else { return false }
+        let fileManager = FileManager.default
+        let documentsPath = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let fullPath = documentsPath.appendingPathComponent(localPath)
+        return fileManager.fileExists(atPath: fullPath.path)
+    }
     
     // Relationships
     var user: User?          // Who created the response
@@ -72,6 +79,7 @@ final class VideoResponse {
         case processing
         case ready
         case failed
+        case localOnly // New status for videos that are only stored locally
     }
     
     enum Visibility: String, Codable {

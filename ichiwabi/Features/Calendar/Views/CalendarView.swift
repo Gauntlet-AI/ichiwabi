@@ -8,15 +8,45 @@ struct CalendarView: View {
     @State private var currentMonth: Date = Calendar.current.startOfDay(for: Date())
     private let calendar = Calendar.current
     
-    init(userId: String) {
+    private init(viewModel: CalendarViewModel) {
+        _viewModel = StateObject(wrappedValue: viewModel)
+    }
+    
+    static func create(userId: String, modelContext: ModelContext) -> CalendarView {
+        // Create a schema with all required models
+        let schema = Schema([
+            Dream.self,
+            User.self,
+            Tag.self,
+            Prompt.self,
+            VideoResponse.self,
+            Comment.self,
+            Report.self,
+            Notification.self
+        ])
+        
+        // Try to create a container with the schema
         let container: ModelContainer
         do {
-            container = try ModelContainer(for: Dream.self)
+            let config = ModelConfiguration(schema: schema)
+            container = try ModelContainer(for: schema, configurations: config)
         } catch {
-            fatalError("Failed to create ModelContainer for Dream: \(error)")
+            print("Failed to create ModelContainer: \(error)")
+            // Fallback to an in-memory container
+            let fallbackConfig = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+            do {
+                container = try ModelContainer(for: schema, configurations: fallbackConfig)
+            } catch {
+                print("Critical error: Failed to create even in-memory container: \(error)")
+                // Use the provided ModelContext as a last resort
+                return CalendarView(viewModel: CalendarViewModel(
+                    dreamService: DreamService(modelContext: modelContext, userId: userId)
+                ))
+            }
         }
+        
         let dreamService = DreamService(modelContext: ModelContext(container), userId: userId)
-        _viewModel = StateObject(wrappedValue: CalendarViewModel(dreamService: dreamService))
+        return CalendarView(viewModel: CalendarViewModel(dreamService: dreamService))
     }
     
     var body: some View {

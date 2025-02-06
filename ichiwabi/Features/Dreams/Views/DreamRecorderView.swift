@@ -124,7 +124,7 @@ struct DreamRecorderView: View {
             }
             .fullScreenCover(isPresented: $showingTrimmer) {
                 if let url = selectedVideoURL ?? recordedVideoURL {
-                    VideoTrimmerView(videoURL: url)
+                    VideoTrimmerView(videoURL: url, userId: userId)
                 }
             }
             .task {

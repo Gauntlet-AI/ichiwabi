@@ -23,7 +23,7 @@ struct DreamCell: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                 
-                if dream.videoURL != nil {
+                if !dream.videoURL.absoluteString.isEmpty {
                     Spacer()
                     Image(systemName: "video.fill")
                         .foregroundColor(.secondary)
@@ -39,10 +39,12 @@ struct DreamCell: View {
 
 #Preview {
     DreamCell(dream: Dream(
-        title: "Flying Dream", 
-        transcript: "I was flying over mountains and oceans...",
-        dreamDate: Date(),
-        userId: "preview-user-id"
+        userId: "preview-user-id",
+        title: "Flying Dream",
+        description: "I was flying over mountains and oceans...",
+        date: Date(),
+        videoURL: URL(string: "https://example.com/video.mp4")!,
+        dreamDate: Date()
     ))
     .padding()
     .background(Color(.systemGroupedBackground))

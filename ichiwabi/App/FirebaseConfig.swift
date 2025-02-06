@@ -7,12 +7,10 @@ class FirebaseConfig {
     static func configure() {
         FirebaseApp.configure()
         
-        #if DEBUG
-        print("🔥 Configuring Firebase emulators")
-        // Connect to local emulators
-        Auth.auth().useEmulator(withHost: "localhost", port: 9099)
-        Firestore.firestore().useEmulator(withHost: "localhost", port: 8080)
-        Storage.storage().useEmulator(withHost: "localhost", port: 9199)
-        #endif
+        // Initialize Firebase services for production
+        let db = Firestore.firestore()
+        let storage = Storage.storage()
+        
+        print("🔥 Firebase configured for production")
     }
 } 

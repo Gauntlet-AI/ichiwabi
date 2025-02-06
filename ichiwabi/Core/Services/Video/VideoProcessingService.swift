@@ -107,23 +107,20 @@ final class VideoProcessingService: ObservableObject {
         _ exportSession: AVAssetExportSession,
         outputURL: URL
     ) async throws -> URL {
-        try await withCheckedThrowingContinuation { continuation in
-            exportSession.exportAsynchronously { [weak exportSession] in
-                guard let exportSession = exportSession else {
-                    continuation.resume(throwing: VideoProcessingError.exportFailed)
-                    return
-                }
-                
-                switch exportSession.status {
-                case .completed:
-                    continuation.resume(returning: outputURL)
-                case .failed:
-                    print("Export failed with error: \(String(describing: exportSession.error))")
-                    continuation.resume(throwing: exportSession.error ?? VideoProcessingError.exportFailed)
-                case .cancelled:
-                    continuation.resume(throwing: VideoProcessingError.exportCancelled)
-                default:
-                    continuation.resume(throwing: VideoProcessingError.unknown)
+        return try await withCheckedThrowingContinuation { continuation in
+            Task { @MainActor in
+                exportSession.exportAsynchronously { [exportSession] in
+                    switch exportSession.status {
+                    case .completed:
+                        continuation.resume(returning: outputURL)
+                    case .failed:
+                        print("Export failed with error: \(String(describing: exportSession.error))")
+                        continuation.resume(throwing: exportSession.error ?? VideoProcessingError.exportFailed)
+                    case .cancelled:
+                        continuation.resume(throwing: VideoProcessingError.exportCancelled)
+                    default:
+                        continuation.resume(throwing: VideoProcessingError.unknown)
+                    }
                 }
             }
         }

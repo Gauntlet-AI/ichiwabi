@@ -118,7 +118,7 @@ struct HomeView: View {
                     .foregroundColor(.white)
                 Spacer()
                 NavigationLink {
-                    CalendarView(userId: currentUser?.id ?? "")
+                    CalendarView.create(userId: currentUser?.id ?? "", modelContext: modelContext)
                 } label: {
                     Text("View Calendar")
                         .font(.subheadline)
@@ -175,44 +175,60 @@ struct HomeView: View {
     }
 }
 
-#Preview {
-    do {
-        let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: User.self, Dream.self, configurations: config)
-        
-        // Create sample user
-        let user = User(
-            id: "preview_user",
-            username: "dreamwalker",
-            displayName: "Dream Walker",
-            email: "dream@example.com"
-        )
-        
-        // Create sample dreams
-        let dreams = [
-            Dream(
-                title: "Flying Over Mountains",
-                transcript: "I was soaring over snow-capped peaks, feeling the crisp wind against my face...",
-                dreamDate: Date(),
-                userId: user.id
-            ),
-            Dream(
-                title: "Underwater City",
-                transcript: "Discovered a magnificent city beneath the waves, with buildings made of coral...",
-                dreamDate: Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? Date(),
-                userId: user.id
+private extension HomeView {
+    static func makePreview() -> AnyView {
+        do {
+            let config = ModelConfiguration(isStoredInMemoryOnly: true)
+            let container = try ModelContainer(for: User.self, Dream.self, configurations: config)
+            
+            // Create sample user
+            let user = User(
+                id: "preview_user",
+                username: "dreamwalker",
+                displayName: "Dream Walker",
+                email: "dream@example.com"
             )
-        ]
-        
-        // Add to container
-        container.mainContext.insert(user)
-        dreams.forEach { container.mainContext.insert($0) }
-        
-        return HomeView(userId: user.id)
-            .modelContainer(container)
-            .preferredColorScheme(.dark)
-            .background(Color(red: 0.05, green: 0.1, blue: 0.2))
-    } catch {
-        return Text("Failed to create preview: \(error.localizedDescription)")
+            
+            // Create sample dreams
+            let dreams = [
+                Dream(
+                    userId: user.id,
+                    title: "Flying Over Mountains",
+                    description: "I was soaring over snow-capped peaks, feeling the crisp wind against my face...",
+                    date: Date(),
+                    videoURL: URL(string: "https://example.com/video1.mp4")!,
+                    transcript: "I was soaring over snow-capped peaks, feeling the crisp wind against my face...",
+                    dreamDate: Date()
+                ),
+                Dream(
+                    userId: user.id,
+                    title: "Underwater City",
+                    description: "Discovered a magnificent city beneath the waves, with buildings made of coral...",
+                    date: Date(),
+                    videoURL: URL(string: "https://example.com/video2.mp4")!,
+                    transcript: "Discovered a magnificent city beneath the waves, with buildings made of coral...",
+                    dreamDate: Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? Date()
+                )
+            ]
+            
+            // Add to container
+            container.mainContext.insert(user)
+            dreams.forEach { container.mainContext.insert($0) }
+            
+            return AnyView(
+                HomeView(userId: user.id)
+                    .modelContainer(container)
+                    .preferredColorScheme(.dark)
+                    .background(Color(red: 0.05, green: 0.1, blue: 0.2))
+            )
+        } catch {
+            return AnyView(
+                Text("Failed to create preview: \(error.localizedDescription)")
+            )
+        }
     }
+}
+
+#Preview {
+    HomeView.makePreview()
 } 

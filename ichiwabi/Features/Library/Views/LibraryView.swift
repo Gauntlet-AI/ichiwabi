@@ -20,7 +20,7 @@ struct LibraryView: View {
             filter: #Predicate<Dream> { dream in
                 dream.dreamDate >= startOfDay && dream.dreamDate < endOfDay
             },
-            sort: \Dream.recordedDate
+            sort: \Dream.dreamDate
         )
     }
     

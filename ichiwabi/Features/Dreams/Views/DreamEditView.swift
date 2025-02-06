@@ -63,9 +63,9 @@ struct DreamEditView: View {
                 }
                 
                 Section {
-                    Text("Recorded on \(dream.recordedDate.formatted())")
+                    Text("Recorded on \(dream.date.formatted(date: .long, time: .shortened))")
                         .foregroundStyle(.secondary)
-                    Text("Last updated \(dream.updatedAt.formatted())")
+                    Text("Last updated \(dream.updatedAt.formatted(date: .long, time: .shortened))")
                         .foregroundStyle(.secondary)
                 }
             }

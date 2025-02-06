@@ -30,10 +30,12 @@ class DreamService: ObservableObject {
         let normalizedDreamDate = calendar.startOfDay(for: dreamDate)
         
         let dream = Dream(
+            userId: userId,
             title: title,
-            recordedDate: Date(),
-            dreamDate: normalizedDreamDate,
-            userId: userId
+            description: "",
+            date: Date(),
+            videoURL: URL(fileURLWithPath: ""),  // Temporary URL, will be updated later
+            dreamDate: normalizedDreamDate
         )
         
         modelContext.insert(dream)
@@ -54,14 +56,16 @@ class DreamService: ObservableObject {
     // MARK: - Firestore Sync
     
     private func syncDreamToFirestore(_ dream: Dream) async throws {
-        let docRef = db.collection("dreams").document(dream.id)
+        print("💭 Syncing dream to Firestore - ID: \(dream.dreamId), User: \(dream.userId)")
+        let docRef = db.collection("dreams").document(dream.dreamId.uuidString)
         try await docRef.setData(dream.firestoreData, merge: true)
         dream.isSynced = true
         dream.lastSyncedAt = Date()
+        print("💭 Dream synced successfully")
     }
     
     private func deleteDreamFromFirestore(_ dream: Dream) async throws {
-        let docRef = db.collection("dreams").document(dream.id)
+        let docRef = db.collection("dreams").document(dream.dreamId.uuidString)
         try await docRef.delete()
     }
     
@@ -128,11 +132,12 @@ class DreamService: ObservableObject {
                 // Update existing dream if remote version is newer
                 if existingDream.updatedAt < dream.updatedAt {
                     existingDream.title = dream.title
-                    existingDream.transcript = dream.transcript
+                    existingDream.dreamDescription = dream.dreamDescription
                     existingDream.videoURL = dream.videoURL
                     existingDream.dreamDate = dream.dreamDate
                     existingDream.tags = dream.tags
                     existingDream.category = dream.category
+                    existingDream.transcript = dream.transcript
                     existingDream.updatedAt = dream.updatedAt
                     existingDream.isSynced = true
                     existingDream.lastSyncedAt = Date()
@@ -163,5 +168,29 @@ class DreamService: ObservableObject {
                 try await syncDreamToFirestore(dream)
             }
         }
+    }
+    
+    func saveDream(_ dream: Dream) async throws {
+        print("💭 Saving dream to local database")
+        modelContext.insert(dream)
+        try modelContext.save()
+        try await syncDreamToFirestore(dream)
+    }
+    
+    func fetchDreams() throws -> [Dream] {
+        let descriptor = FetchDescriptor<Dream>(
+            predicate: #Predicate<Dream> { dream in
+                dream.userId == userId
+            },
+            sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
+        )
+        return try modelContext.fetch(descriptor)
+    }
+    
+    func deleteDream(_ dream: Dream) throws {
+        modelContext.delete(dream)
+        try modelContext.save()
+        
+        // TODO: Implement cloud sync
     }
 } 

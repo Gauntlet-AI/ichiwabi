@@ -11,25 +11,27 @@ final class VideoUploadService: ObservableObject {
     private let storage = Storage.storage()
     private var activeUploads: [String: StorageUploadTask] = [:]
     
-    func uploadVideo(at localURL: URL, userId: String) async throws -> String {
+    // MARK: - Video Storage Management
+    
+    func uploadVideo(at localURL: URL, userId: String) async throws -> (localURL: URL, cloudURL: String) {
         isUploading = true
         defer { isUploading = false }
         
         print("🎥 Starting video upload for user: \(userId)")
-        print("🎥 Local video URL: \(localURL)")
+        print("🎥 Original video URL: \(localURL)")
         
-        // Create a unique path for the video
+        // Create a unique filename
         let filename = "\(UUID().uuidString).mp4"
-        let path = "users/\(userId)/dreams/\(filename)"
-        let storageRef = storage.reference().child(path)
-        print("🎥 Firebase Storage path: \(path)")
+        let cloudPath = "users/\(userId)/dreams/\(filename)"
+        let storageRef = storage.reference().child(cloudPath)
+        print("🎥 Firebase Storage path: \(cloudPath)")
         
         // Save video locally first
         let localCopy = try await saveVideoLocally(from: localURL, userId: userId, filename: filename)
         print("🎥 Saved local copy at: \(localCopy)")
         
-        // Start upload
-        return try await withCheckedThrowingContinuation { continuation in
+        // Start upload to Firebase Storage
+        let cloudURL = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
             let metadata = StorageMetadata()
             metadata.contentType = "video/mp4"
             
@@ -68,16 +70,48 @@ final class VideoUploadService: ObservableObject {
             }
             
             // Store active upload
-            activeUploads[path] = uploadTask
+            activeUploads[cloudPath] = uploadTask
             
             // Register background task
-            registerBackgroundTask(for: path)
+            registerBackgroundTask(for: cloudPath)
         }
+        
+        return (localCopy, cloudURL)
     }
     
-    func cancelUpload(for path: String) {
-        activeUploads[path]?.cancel()
-        activeUploads.removeValue(forKey: path)
+    func getVideo(localPath: String?, cloudURL: String?) async throws -> URL? {
+        // First try to get from local storage
+        if let localPath = localPath {
+            let fileManager = FileManager.default
+            let localURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent(localPath)
+            
+            if fileManager.fileExists(atPath: localURL.path) {
+                return localURL
+            }
+        }
+        
+        // If local file doesn't exist or no local path, try to download from cloud
+        if let cloudURL = cloudURL, let url = URL(string: cloudURL) {
+            return try await downloadVideo(from: url)
+        }
+        
+        return nil
+    }
+    
+    private func downloadVideo(from url: URL) async throws -> URL {
+        // Get reference from URL
+        let path = url.lastPathComponent
+        let storageRef = storage.reference().child("users").child(path)
+        
+        // Create local URL for download
+        let fileManager = FileManager.default
+        let localURL = fileManager.temporaryDirectory.appendingPathComponent(path)
+        
+        // Download to local file
+        _ = try await storageRef.write(toFile: localURL)
+        
+        return localURL
     }
     
     private func saveVideoLocally(from url: URL, userId: String, filename: String) async throws -> URL {
@@ -95,6 +129,11 @@ final class VideoUploadService: ObservableObject {
         }
         
         return destinationURL
+    }
+    
+    func cancelUpload(for path: String) {
+        activeUploads[path]?.cancel()
+        activeUploads.removeValue(forKey: path)
     }
     
     private func registerBackgroundTask(for path: String) {
