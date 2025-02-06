@@ -121,80 +121,121 @@ final class UserSyncService: BaseSyncService<User> {
     
     @MainActor
     func syncCurrentUser() async throws {
-        print("🔍 Starting syncCurrentUser")
-        
+        print("\n🔐 ==================== SYNC START ====================")
+        print("🔐 Starting syncCurrentUser")
+
         guard let currentUser = auth.currentUser else {
-            print("🔍 No current Firebase user - not authenticated")
+            print("❌ No current Firebase user - not authenticated")
+            print("🔐 ==================== SYNC END ====================\n")
             throw SyncError.unauthorized
         }
-        
-        print("🔍 Firebase user found: \(currentUser.uid)")
-        print("🔍 Email: \(currentUser.email ?? "none")")
-        print("🔍 Display name: \(currentUser.displayName ?? "none")")
-        
+
+        print("✅ Firebase user found: \(currentUser.uid)")
+        print("📧 Email: \(currentUser.email ?? "none")")
+        print("👤 Display name: \(currentUser.displayName ?? "none")")
+
         // Verify SwiftData setup first
-        print("🔍 Starting SwiftData verification...")
+        print("\n🔍 Starting SwiftData verification...")
         try await verifySwiftDataSetup()
-        print("🔍 SwiftData verification complete")
-        
+        print("✅ SwiftData verification complete")
+
         do {
             if let localUser = try fetchUser(withId: currentUser.uid) {
-                print("🔍 Found existing user in SwiftData: \(localUser.id)")
-                print("🔍 Username: \(localUser.username)")
-                print("🔍 Sync status: \(localUser.syncStatus)")
-                print("🔍 Profile complete: \(localUser.isProfileComplete)")
-                
+                print("\n📱 Found existing user in SwiftData:")
+                print("🆔 User ID: \(localUser.id)")
+                print("👤 Username: \(localUser.username)")
+                print("🔄 Sync status: \(localUser.syncStatus)")
+                print("✍️ Profile complete: \(localUser.isProfileComplete)")
+
                 do {
                     let docRef = Firestore.firestore().collection(User.collectionPath).document(currentUser.uid)
-                    print("🔍 Checking Firestore document...")
+                    print("\n🔥 Checking Firestore document...")
                     let document = try await docRef.getDocument()
-                    
+
                     if document.exists, let data = document.data() {
-                        print("🔍 Found Firestore data, updating local user")
+                        print("✅ Found Firestore data, updating local user")
                         let firestoreUser = try User.fromFirestoreData(data, id: currentUser.uid)
-                        
+
                         // Preserve local profile completion state if it's true
                         if localUser.isProfileComplete {
                             firestoreUser.isProfileComplete = true
                         }
-                        
+
                         // Store the merged changes
                         let updatedUser = try localUser.mergeChanges(from: firestoreUser)
                         try await sync(updatedUser)
-                        print("🔍 Local user updated from Firestore")
-                        print("🔍 Final profile complete state: \(localUser.isProfileComplete)")
+                        print("✅ Local user updated from Firestore")
+                        print("✍️ Final profile complete state: \(localUser.isProfileComplete)")
                     } else {
-                        print("🔍 No Firestore data, syncing local user to Firestore")
+                        print("\n📤 No Firestore data, syncing local user to Firestore")
                         try await sync(localUser)
-                        print("🔍 Local user synced to Firestore")
+                        print("✅ Local user synced to Firestore")
                     }
                 } catch {
-                    print("🔍 Error during Firestore sync: \(error)")
+                    print("\n❌ Error during Firestore sync: \(error)")
                     throw error
                 }
             } else {
-                print("🔍 No local user found, creating new user")
+                print("\n🆕 Creating new user...")
                 let newUser = User(
                     id: currentUser.uid,
-                    username: currentUser.email ?? "user_\(currentUser.uid)",
+                    username: generateDefaultUsername(from: currentUser),
                     displayName: currentUser.displayName ?? "New User",
                     email: currentUser.email ?? "",
                     isEmailVerified: currentUser.isEmailVerified
                 )
-                
-                print("🔍 Inserting new user into SwiftData")
+
+                print("\n📝 New user details:")
+                print("🆔 ID: \(newUser.id)")
+                print("👤 Username: \(newUser.username)")
+                print("📛 Display Name: \(newUser.displayName)")
+                print("📧 Email: \(newUser.email)")
+
                 context.insert(newUser)
-                try context.save()
-                print("🔍 New user saved to SwiftData")
-                
-                print("🔍 Syncing new user to Firestore")
-                try await sync(newUser)
-                print("🔍 New user synced with Firestore")
+
+                print("\n💾 Saving to SwiftData...")
+                do {
+                    try context.save()
+                    print("✅ Save successful")
+                } catch {
+                    print("❌ Save failed: \(error)")
+                    print("❌ Error details: \(error.localizedDescription)")
+                    throw error
+                }
+
+                print("\n🔍 Verifying save...")
+                let verifyDescriptor = FetchDescriptor<User>(
+                    sortBy: [SortDescriptor(\User.id)]
+                )
+
+                do {
+                    let allUsers = try context.fetch(verifyDescriptor)
+                    print("📊 Found \(allUsers.count) total users")
+                    print("🆔 User IDs: \(allUsers.map { $0.id }.joined(separator: ", "))")
+
+                    if let savedUser = allUsers.first(where: { $0.id == currentUser.uid }) {
+                        print("✅ User verified in SwiftData: \(savedUser.id)")
+                        print("\n🔥 Syncing to Firestore...")
+                        try await sync(savedUser)
+                        print("✅ Sync complete")
+                    } else {
+                        print("❌ User not found in SwiftData after save")
+                        print("📊 Context state:")
+                        print("💾 Has changes: \(context.hasChanges)")
+                        throw SyncError.invalidData("Failed to save user to SwiftData - user not found after save")
+                    }
+                } catch {
+                    print("\n❌ Verification failed: \(error)")
+                    print("❌ Error details: \(error.localizedDescription)")
+                    throw error
+                }
             }
         } catch {
-            print("🔍 Error during sync process: \(error)")
+            print("\n❌ Sync error: \(error)")
             throw error
         }
+        
+        print("🔐 ==================== SYNC END ====================\n")
     }
     
     /// Create a new user from Firebase Auth user
@@ -216,17 +257,32 @@ final class UserSyncService: BaseSyncService<User> {
     
     /// Generate a default username from email or display name
     private func generateDefaultUsername(from authUser: FirebaseAuth.User) -> String {
+        var username = ""
+        
         if let email = authUser.email {
             // Use email prefix, remove special characters
-            let username = email.split(separator: "@")[0]
+            username = email.split(separator: "@")[0]
                 .replacingOccurrences(of: "[^a-zA-Z0-9_]", with: "", options: .regularExpression)
-            return username
+                .lowercased()
         } else if let displayName = authUser.displayName {
             // Use display name, remove spaces and special characters
-            return displayName.replacingOccurrences(of: "[^a-zA-Z0-9_]", with: "", options: .regularExpression)
+            username = displayName
+                .replacingOccurrences(of: " ", with: "_")
+                .replacingOccurrences(of: "[^a-zA-Z0-9_]", with: "", options: .regularExpression)
+                .lowercased()
         } else {
-            return "user_\(String(authUser.uid.prefix(6)))"
+            username = "user_\(String(authUser.uid.prefix(6)))"
         }
+        
+        // Ensure minimum length
+        if username.count < 3 {
+            username = "user_\(username)"
+        }
+        
+        // Add random suffix to help ensure uniqueness
+        username = "\(username)_\(String(Int.random(in: 1000...9999)))"
+        
+        return username
     }
     
     /// Ensure username is unique by checking Firestore

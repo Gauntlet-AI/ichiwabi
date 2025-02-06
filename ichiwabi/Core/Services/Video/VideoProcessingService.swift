@@ -7,6 +7,8 @@ final class VideoProcessingService: ObservableObject {
     @Published private(set) var isProcessing = false
     @Published var error: Error?
     
+    private let watermarkService = WatermarkService.shared
+    
     enum VideoQuality {
         case high
         case medium
@@ -70,11 +72,25 @@ final class VideoProcessingService: ObservableObject {
         _ exportSession: AVAssetExportSession,
         asset: AVAsset,
         quality: VideoQuality,
-        duration: Double
+        duration: Double,
+        date: Date? = nil,
+        title: String? = nil
     ) async throws {
         let bitrate = await calculateBitrate(for: asset, quality: quality)
-        let composition = await createVideoComposition(for: asset)
-        exportSession.videoComposition = composition
+        
+        // Apply watermark if date is provided
+        if let date = date {
+            let composition = try await watermarkService.applyWatermark(
+                to: asset,
+                date: date,
+                title: title
+            )
+            exportSession.videoComposition = composition
+        } else {
+            let composition = await createVideoComposition(for: asset)
+            exportSession.videoComposition = composition
+        }
+        
         exportSession.fileLengthLimit = Int64(Double(bitrate) * duration / 8.0)
     }
     
@@ -85,7 +101,9 @@ final class VideoProcessingService: ObservableObject {
         startTime: Double,
         endTime: Double,
         asset: AVAsset,
-        quality: VideoQuality
+        quality: VideoQuality,
+        date: Date? = nil,
+        title: String? = nil
     ) async throws {
         configureBasicSettings(
             exportSession,
@@ -98,7 +116,9 @@ final class VideoProcessingService: ObservableObject {
             exportSession,
             asset: asset,
             quality: quality,
-            duration: endTime - startTime
+            duration: endTime - startTime,
+            date: date,
+            title: title
         )
     }
     
@@ -130,7 +150,9 @@ final class VideoProcessingService: ObservableObject {
         at url: URL,
         from startTime: Double,
         to endTime: Double,
-        quality: VideoQuality = .medium
+        quality: VideoQuality = .medium,
+        date: Date? = nil,
+        title: String? = nil
     ) async throws -> URL {
         isProcessing = true
         defer { isProcessing = false }
@@ -147,7 +169,9 @@ final class VideoProcessingService: ObservableObject {
             startTime: startTime,
             endTime: endTime,
             asset: asset,
-            quality: quality
+            quality: quality,
+            date: date,
+            title: title
         )
         
         return try await performExport(session, outputURL: outputURL)

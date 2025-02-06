@@ -51,26 +51,109 @@ final class AuthenticationService {
     // MARK: - Initialization
     @MainActor
     init(context: ModelContext) {
+        print("🔐 Initializing AuthenticationService")
         self.context = context
         self.syncService = UserSyncService(modelContext: context)
-        Task {
-            setupAuthStateHandler()
+        print("🔐 Created UserSyncService")
+        setupAuthStateHandler()
+        print("🔐 Auth state handler setup complete")
+        
+        // Check initial auth state
+        if let currentFirebaseUser = auth.currentUser {
+            print("🔐 Found existing Firebase user on init: \(currentFirebaseUser.uid)")
+        } else {
+            print("🔐 No existing Firebase user on init")
         }
     }
     
     private var authStateHandle: AuthStateDidChangeListenerHandle?
     
     private func setupAuthStateHandler() {
+        print("🔐 Setting up auth state handler")
+        // Remove any existing handler
+        if let existingHandle = authStateHandle {
+            print("🔐 Removing existing auth state handler")
+            auth.removeStateDidChangeListener(existingHandle)
+        }
+        
         authStateHandle = auth.addStateDidChangeListener { [weak self] _, user in
+            print("🔐 Auth state change detected")
             Task { @MainActor in
-                guard let self = self else { return }
+                guard let self = self else {
+                    print("🔐 Self is nil in auth state handler")
+                    return
+                }
+                
+                print("🔐 Auth state changed. User: \(user?.uid ?? "nil")")
+                print("🔐 Current auth state: \(self.authState)")
+                
                 if let firebaseUser = user {
                     print("🔐 User signed in: \(firebaseUser.uid)")
-                    self.authState = .signedIn
                     do {
+                        print("🔐 Starting user sync...")
                         try await self.syncService.syncCurrentUser()
+                        print("🔐 User sync completed")
+                        
+                        // After sync, fetch the user from SwiftData
+                        print("🔐 Attempting to fetch user after sync")
+                        // First ensure any pending changes are saved
+                        if self.context.hasChanges {
+                            print("🔐 Saving pending changes in context")
+                            try? self.context.save()
+                        }
+                        
+                        // Force a new fetch descriptor to ensure we're not using cached results
+                        print("🔐 Creating fetch descriptor")
+                        var descriptor = FetchDescriptor<User>(
+                            sortBy: [SortDescriptor(\User.id)]
+                        )
+                        descriptor.fetchLimit = Int.max  // Set to maximum to fetch all users
+                        
+                        do {
+                            // Try multiple fetches if needed
+                            var attempts = 0
+                            var allUsers: [User] = []
+                            
+                            while allUsers.isEmpty && attempts < 3 {
+                                attempts += 1
+                                print("🔐 Fetch attempt \(attempts)")
+                                allUsers = try self.context.fetch(descriptor)
+                                print("🔐 Fetch returned \(allUsers.count) users")
+                                
+                                if allUsers.isEmpty && attempts < 3 {
+                                    print("🔐 No users found, waiting before retry...")
+                                    // Wait a bit before trying again
+                                    try await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+                                }
+                            }
+                            
+                            print("🔐 Fetched \(allUsers.count) users from SwiftData after \(attempts) attempts")
+                            print("🔐 Looking for user with ID: \(firebaseUser.uid)")
+                            
+                            if let user = allUsers.first(where: { user in
+                                print("🔐 Comparing user.id: \(user.id) with firebaseUser.uid: \(firebaseUser.uid)")
+                                return user.id == firebaseUser.uid
+                            }) {
+                                print("🔐 Found matching user in SwiftData")
+                                self.currentUser = user
+                                print("🔐 Set currentUser to: \(user.id)")
+                                self.authState = .signedIn
+                                print("🔐 Set authState to: signedIn")
+                            } else {
+                                print("⚠️ User is signed in but no matching user data found")
+                                print("⚠️ Available user IDs: \(allUsers.map { $0.id }.joined(separator: ", "))")
+                                print("⚠️ Setting authState to signedOut")
+                                self.authState = .signedOut
+                            }
+                        } catch {
+                            print("🔐 Error fetching users from SwiftData: \(error)")
+                            print("🔐 Error details: \(error.localizedDescription)")
+                            self.authState = .signedOut
+                        }
                     } catch {
                         print("Error syncing user: \(error)")
+                        print("Error details: \(error.localizedDescription)")
+                        self.authState = .signedOut
                     }
                 } else {
                     print("🔐 User signed out")
@@ -91,16 +174,25 @@ final class AuthenticationService {
     }
     
     func signIn(email: String, password: String) async throws {
+        print("🔐 Starting sign in process for email: \(email)")
         // First sign in
-        try await auth.signIn(withEmail: email, password: password)
+        let result = try await auth.signIn(withEmail: email, password: password)
+        print("🔐 Firebase sign in successful for user: \(result.user.uid)")
         
         // If successful, store email for biometric auth
         defaults.set(email, forKey: AuthenticationService.lastSignedInEmailKey)
+        print("🔐 Stored email for biometric auth")
         
         // Store the authentication token securely
         if let user = auth.currentUser {
+            print("🔐 Getting ID token for user")
             let token = try await user.getIDToken()
+            print("🔐 Got ID token, storing in keychain")
             try storeAuthToken(token)
+            print("🔐 Sign in process completed successfully")
+        } else {
+            print("🔐 Error: Current user is nil after successful sign in")
+            throw AuthError.unknown
         }
     }
     
@@ -119,10 +211,10 @@ final class AuthenticationService {
         defaults.removeObject(forKey: AuthenticationService.lastSignedInEmailKey)
         
         // Clear stored auth token from keychain
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrAccount as String: "FirebaseAuthToken",
-            kSecAttrAccessGroup as String: "\(Bundle.main.bundleIdentifier ?? "com.ichiwabi.app").keychain"
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrAccount: "FirebaseAuthToken",
+            kSecAttrAccessGroup: "\(Bundle.main.bundleIdentifier ?? "com.ichiwabi.app").keychain" as CFString
         ]
         let status = SecItemDelete(query as CFDictionary)
         print("🔐 Keychain clear status: \(status)")
@@ -298,23 +390,30 @@ final class AuthenticationService {
     }
     
     private func storeAuthToken(_ token: String) throws {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrAccount as String: "FirebaseAuthToken",
-            kSecValueData as String: token.data(using: .utf8) as Any,
-            kSecAttrAccessGroup as String: "\(Bundle.main.bundleIdentifier ?? "com.ichiwabi.app").keychain",
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        guard let tokenData = token.data(using: .utf8) else {
+            throw AuthError.biometricError("Failed to convert token to data")
+        }
+        
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrAccount: "FirebaseAuthToken",
+            kSecValueData: tokenData,
+            kSecAttrAccessible: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         ]
         
         print("🔐 Storing auth token in keychain...")
         let status = SecItemAdd(query as CFDictionary, nil)
         if status == errSecDuplicateItem {
             // Token already exists, update it
-            let updateQuery: [String: Any] = [
-                kSecValueData as String: token.data(using: .utf8) as Any
+            let updateQuery: [CFString: Any] = [
+                kSecClass: kSecClassGenericPassword,
+                kSecAttrAccount: "FirebaseAuthToken"
+            ]
+            let updateAttributes: [CFString: Any] = [
+                kSecValueData: tokenData
             ]
             print("🔐 Updating existing token in keychain...")
-            let updateStatus = SecItemUpdate(query as CFDictionary, updateQuery as CFDictionary)
+            let updateStatus = SecItemUpdate(updateQuery as CFDictionary, updateAttributes as CFDictionary)
             guard updateStatus == errSecSuccess else {
                 print("🔐 Error updating token in keychain: \(updateStatus)")
                 throw AuthError.biometricError("Failed to update authentication token")
@@ -329,12 +428,11 @@ final class AuthenticationService {
     }
     
     private func retrieveAuthToken() throws -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrAccount as String: "FirebaseAuthToken",
-            kSecReturnData as String: true,
-            kSecAttrAccessGroup as String: "\(Bundle.main.bundleIdentifier ?? "com.ichiwabi.app").keychain",
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrAccount: "FirebaseAuthToken",
+            kSecReturnData: true,
+            kSecMatchLimit: kSecMatchLimitOne
         ]
         
         print("🔐 Retrieving auth token from keychain...")

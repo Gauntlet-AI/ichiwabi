@@ -98,10 +98,16 @@ struct DreamDetailsView: View {
                             print("💭 Saving dream...")
                             try await viewModel.saveDream()
                             print("💭 Dream saved successfully")
-                            // Dismiss both sheets
+                            
+                            // Dismiss all the way back to home screen
                             dismiss()
+                            
+                            // Post notification to dismiss video trimmer
+                            NotificationCenter.default.post(name: NSNotification.Name("DismissVideoTrimmer"), object: nil)
+                            
+                            // Post notification to dismiss dream recorder
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                NotificationCenter.default.post(name: NSNotification.Name("DismissVideoTrimmer"), object: nil)
+                                NotificationCenter.default.post(name: NSNotification.Name("DismissRecorder"), object: nil)
                             }
                         } catch {
                             print("❌ Error saving dream: \(error)")

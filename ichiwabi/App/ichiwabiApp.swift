@@ -9,6 +9,7 @@ import SwiftUI
 import SwiftData
 import FirebaseCore
 import UIKit
+import FirebaseAuth
 
 class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
@@ -46,8 +47,13 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 struct IchiwabiApp: App {
     // Register app delegate for Firebase setup
     @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
+    @StateObject private var notificationService = NotificationService.shared
+    @State private var showingRecorder = false
     
     var sharedModelContainer: ModelContainer = {
+        print("\n📱 ==================== APP INIT ====================")
+        print("📱 Creating shared ModelContainer...")
+        
         let schema = Schema([
             User.self,
             Tag.self,
@@ -58,27 +64,37 @@ struct IchiwabiApp: App {
             Notification.self,
             Dream.self
         ])
+        print("📱 Schema created with models: User, Tag, Prompt, VideoResponse, Comment, Report, Notification, Dream")
         
         let modelConfiguration = ModelConfiguration(
             schema: schema,
             url: URL.documentsDirectory.appending(path: "ichiwabi.store"),
             allowsSave: true
         )
+        print("📱 Model configuration created at: \(URL.documentsDirectory.appending(path: "ichiwabi.store").path)")
         
         do {
-            return try ModelContainer(for: schema, configurations: modelConfiguration)
+            let container = try ModelContainer(for: schema, configurations: modelConfiguration)
+            print("✅ ModelContainer created successfully")
+            print("📱 ==================== APP INIT END ====================\n")
+            return container
         } catch {
             // If we can't open the store, try to recover by deleting it
-            print("Failed to create ModelContainer: \(error)")
+            print("❌ Failed to create ModelContainer: \(error)")
             
             do {
                 // Delete the existing store
                 try FileManager.default.removeItem(at: modelConfiguration.url)
-                print("Deleted corrupted store file")
+                print("🗑️ Deleted corrupted store file")
                 
                 // Try to create a new store
-                return try ModelContainer(for: schema, configurations: modelConfiguration)
+                let container = try ModelContainer(for: schema, configurations: modelConfiguration)
+                print("✅ Recovery successful - new ModelContainer created")
+                print("📱 ==================== APP INIT END ====================\n")
+                return container
             } catch {
+                print("❌ Recovery failed: \(error)")
+                print("📱 ==================== APP INIT END ====================\n")
                 fatalError("Recovery failed: \(error)")
             }
         }
@@ -87,9 +103,19 @@ struct IchiwabiApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .preferredColorScheme(.dark)
-                .background(Color(red: 0.05, green: 0.1, blue: 0.2))
+                .onChange(of: notificationService.lastNotificationAction) { oldValue, newValue in
+                    if newValue == .recordDream {
+                        showingRecorder = true
+                        // Reset the action after handling
+                        notificationService.lastNotificationAction = nil
+                    }
+                }
+                .fullScreenCover(isPresented: $showingRecorder) {
+                    if let userId = Auth.auth().currentUser?.uid {
+                        DreamRecorderView(userId: userId)
+                    }
+                }
+                .modelContainer(sharedModelContainer)
         }
-        .modelContainer(sharedModelContainer)
     }
 }

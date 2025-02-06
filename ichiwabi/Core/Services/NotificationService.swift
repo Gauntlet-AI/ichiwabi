@@ -11,15 +11,38 @@ final class NotificationService: NSObject, ObservableObject, UNUserNotificationC
     
     private let center = UNUserNotificationCenter.current()
     private let morningNotificationId = "morning_reminder"
+    private let quickStartCategoryId = "dream_reminder"
+    private let quickStartActionId = "record_dream"
     
     private override init() {
         super.init()
         // Set delegate to handle notification responses
         center.delegate = self
         
+        // Configure notification categories and actions
+        configureNotificationCategories()
+        
         Task {
             await checkAuthorizationStatus()
         }
+    }
+    
+    private func configureNotificationCategories() {
+        // Add actions for quick response
+        let recordAction = UNNotificationAction(
+            identifier: quickStartActionId,
+            title: "Record Dream",
+            options: [.foreground]
+        )
+        
+        let category = UNNotificationCategory(
+            identifier: quickStartCategoryId,
+            actions: [recordAction],
+            intentIdentifiers: [],
+            options: []
+        )
+        
+        center.setNotificationCategories([category])
     }
     
     // MARK: - UNUserNotificationCenterDelegate
@@ -36,9 +59,15 @@ final class NotificationService: NSObject, ObservableObject, UNUserNotificationC
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
-        // Handle notification tap
+        // Handle notification tap or action
         if response.notification.request.identifier == morningNotificationId {
-            lastNotificationAction = .recordDream
+            if response.actionIdentifier == quickStartActionId {
+                // User tapped the "Record Dream" action
+                lastNotificationAction = .recordDream
+            } else if response.actionIdentifier == UNNotificationDefaultActionIdentifier {
+                // User tapped the notification itself
+                lastNotificationAction = .recordDream
+            }
         }
     }
     
@@ -70,26 +99,10 @@ final class NotificationService: NSObject, ObservableObject, UNUserNotificationC
         
         // Create the notification content
         let content = UNMutableNotificationContent()
-        content.title = "Time to Record Your Dream"
-        content.body = "Did you have any interesting dreams last night? Record them while they're still fresh in your mind."
+        content.title = "🌙 Dream Journal Time"
+        content.body = "Your dreams are fading! Quickly record them while they're still fresh in your mind."
         content.sound = .default
-        content.categoryIdentifier = "dream_reminder"
-        
-        // Add actions for quick response
-        let recordAction = UNNotificationAction(
-            identifier: "record_dream",
-            title: "Record Dream",
-            options: .foreground
-        )
-        
-        let category = UNNotificationCategory(
-            identifier: "dream_reminder",
-            actions: [recordAction],
-            intentIdentifiers: [],
-            options: []
-        )
-        
-        center.setNotificationCategories([category])
+        content.categoryIdentifier = quickStartCategoryId
         
         // Create and schedule the notification request
         let request = UNNotificationRequest(

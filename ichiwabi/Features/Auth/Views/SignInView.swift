@@ -4,8 +4,8 @@ import SwiftData
 struct SignInView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var authService: AuthenticationService?
-    @State private var email = ""
-    @State private var password = ""
+    @State private var email = "benjamin.vizy@gauntletai.com"  // Pre-populated email
+    @State private var password = "1loveBenji!"  // Pre-populated password
     @State private var username = ""
     @State private var isSignUp = false
     @State private var showError = false
@@ -28,13 +28,18 @@ struct SignInView: View {
                         showForgotPassword: $showForgotPassword,
                         keyboardHeight: $keyboardHeight
                     )
+                    .onChange(of: authService.authState) { oldState, newState in
+                        print("🔐 View: Auth state changed from \(oldState) to \(newState)")
+                    }
                 } else {
                     ProgressView()
                 }
             }
         }
         .onAppear {
+            print("🔐 View: SignInView appeared")
             if authService == nil {
+                print("🔐 View: Creating new AuthenticationService")
                 authService = AuthenticationService(context: modelContext)
             }
         }
@@ -73,32 +78,6 @@ private struct SignInContentView: View {
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                 
-                #if DEBUG
-                // Development test button
-                Button(action: {
-                    Task {
-                        do {
-                            print("🔍 Creating UserSyncService with modelContext: \(modelContext)")
-                            let userService = UserSyncService(modelContext: modelContext)
-                            print("🔍 UserSyncService created successfully")
-                            try await userService.signInWithTestUser()
-                        } catch {
-                            print("❌ Error during test sign in: \(error)")
-                            showError = true
-                            errorMessage = error.localizedDescription
-                        }
-                    }
-                }) {
-                    Text("Test Sign In (Dev)")
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.green)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
-                }
-                .padding(.horizontal)
-                #endif
-                
                 Group {
                     let hasStoredEmail = UserDefaults.standard.string(forKey: AuthenticationService.lastSignedInEmailKey) != nil
                     if !isSignUp && authService.isBiometricAuthAvailable() && authService.getBiometricType() != .none && hasStoredEmail {
@@ -123,15 +102,6 @@ private struct SignInContentView: View {
                             .cornerRadius(10)
                         }
                         .padding(.horizontal)
-                        .onAppear {
-                            print("🔐 Checking biometric sign-in availability")
-                            print("🔐 Biometric available: \(authService.isBiometricAuthAvailable())")
-                            print("🔐 Biometric type: \(authService.getBiometricType())")
-                            print("🔐 Has stored email: \(hasStoredEmail)")
-                            if let email = UserDefaults.standard.string(forKey: AuthenticationService.lastSignedInEmailKey) {
-                                print("🔐 Stored email: \(email)")
-                            }
-                        }
                     }
                 }
                 

@@ -8,6 +8,7 @@ struct DreamRecorderView: View {
     @State private var recordedVideoURL: URL?
     @State private var selectedVideoURL: URL?
     @State private var showingTrimmer = false
+    @State private var isSelectingFromLibrary = false
     @Environment(\.dismiss) private var dismiss
     let userId: String
     
@@ -18,8 +19,8 @@ struct DreamRecorderView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                // Camera preview
-                if videoCaptureService.isAuthorized {
+                // Camera preview - only show if not selecting from library
+                if videoCaptureService.isAuthorized && !isSelectingFromLibrary {
                     CameraPreviewView(videoCaptureService: videoCaptureService)
                         .edgesIgnoringSafeArea(.all)
                 }
@@ -29,6 +30,12 @@ struct DreamRecorderView: View {
                     // Top controls
                     HStack {
                         Button {
+                            if videoCaptureService.isRecording {
+                                Task {
+                                    _ = try? await videoCaptureService.stopRecording()
+                                }
+                            }
+                            videoCaptureService.cleanup()
                             dismiss()
                         } label: {
                             Image(systemName: "xmark")
@@ -38,12 +45,21 @@ struct DreamRecorderView: View {
                         
                         Spacer()
                         
-                        if !videoCaptureService.isRecording {
-                            Button {
-                                videoCaptureService.switchCamera()
-                            } label: {
-                                Image(systemName: "camera.rotate")
-                                    .font(.title2)
+                        if !videoCaptureService.isRecording && !isSelectingFromLibrary {
+                            HStack(spacing: 24) {
+                                Button {
+                                    videoCaptureService.toggleLowLightMode()
+                                } label: {
+                                    Image(systemName: videoCaptureService.isLowLightModeEnabled ? "moon.fill" : "moon")
+                                        .font(.title2)
+                                }
+                                
+                                Button {
+                                    videoCaptureService.switchCamera()
+                                } label: {
+                                    Image(systemName: "camera.rotate")
+                                        .font(.title2)
+                                }
                             }
                         }
                     }
@@ -72,20 +88,29 @@ struct DreamRecorderView: View {
                                     .font(.title)
                                     .foregroundColor(.white)
                             }
+                            .onChange(of: selectedItem) { oldValue, newValue in
+                                isSelectingFromLibrary = newValue != nil
+                                if newValue != nil {
+                                    // Clean up camera resources when selecting from library
+                                    videoCaptureService.cleanup()
+                                }
+                            }
                         }
                         
-                        // Record button
-                        Button {
-                            handleRecordButton()
-                        } label: {
-                            Circle()
-                                .stroke(Color.white, lineWidth: 3)
-                                .frame(width: 72, height: 72)
-                                .overlay {
-                                    Circle()
-                                        .fill(videoCaptureService.isRecording ? .white : .red)
-                                        .frame(width: 60, height: 60)
-                                }
+                        // Record button - only show if not selecting from library
+                        if !isSelectingFromLibrary {
+                            Button {
+                                handleRecordButton()
+                            } label: {
+                                Circle()
+                                    .stroke(Color.white, lineWidth: 3)
+                                    .frame(width: 72, height: 72)
+                                    .overlay {
+                                        Circle()
+                                            .fill(videoCaptureService.isRecording ? .white : .red)
+                                            .frame(width: 60, height: 60)
+                                    }
+                            }
                         }
                     }
                     .padding(.bottom, 40)
@@ -113,6 +138,15 @@ struct DreamRecorderView: View {
                     Text(errorMessage)
                 }
             }
+            .task {
+                // Only request camera authorization if we're not selecting from library
+                if !isSelectingFromLibrary && !videoCaptureService.isAuthorized {
+                    await videoCaptureService.requestAuthorization()
+                    if !videoCaptureService.isAuthorized {
+                        showingPermissionAlert = true
+                    }
+                }
+            }
             .onChange(of: selectedItem) { oldValue, newValue in
                 Task {
                     if let data = try? await newValue?.loadTransferable(type: Data.self),
@@ -127,13 +161,25 @@ struct DreamRecorderView: View {
                     VideoTrimmerView(videoURL: url, userId: userId)
                 }
             }
-            .task {
-                if !videoCaptureService.isAuthorized {
-                    await videoCaptureService.requestAuthorization()
-                    if !videoCaptureService.isAuthorized {
-                        showingPermissionAlert = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("DismissRecorder"))) { _ in
+            if videoCaptureService.isRecording {
+                Task {
+                    _ = try? await videoCaptureService.stopRecording()
+                }
+            }
+            videoCaptureService.cleanup()
+            dismiss()
+        }
+        .onDisappear {
+            // Only cleanup if we're not showing the trimmer
+            if !showingTrimmer {
+                if videoCaptureService.isRecording {
+                    Task {
+                        _ = try? await videoCaptureService.stopRecording()
                     }
                 }
+                videoCaptureService.cleanup()
             }
         }
     }
