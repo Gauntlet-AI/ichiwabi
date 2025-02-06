@@ -21,7 +21,7 @@ struct DreamRecorderView: View {
                 // Camera preview
                 if videoCaptureService.isAuthorized {
                     CameraPreviewView(videoCaptureService: videoCaptureService)
-                        .ignoresSafeArea()
+                        .edgesIgnoringSafeArea(.all)
                 }
                 
                 // Controls overlay

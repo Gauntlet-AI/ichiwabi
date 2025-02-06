@@ -61,6 +61,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Profile")
                 }
+                .listRowBackground(Color.clear)
                 
                 // App Settings Section
                 Section {
@@ -78,6 +79,7 @@ struct SettingsView: View {
                 } header: {
                     Text("App Settings")
                 }
+                .listRowBackground(Color.clear)
                 
                 // About Section
                 Section {
@@ -90,7 +92,10 @@ struct SettingsView: View {
                 } header: {
                     Text("About")
                 }
+                .listRowBackground(Color.clear)
             }
+            .scrollContentBackground(.hidden)
+            .background(Color(red: 0.05, green: 0.1, blue: 0.2))
             .navigationTitle("Settings")
             .sheet(isPresented: $showingEditProfile) {
                 if let user = currentUser {

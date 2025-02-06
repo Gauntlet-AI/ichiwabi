@@ -15,32 +15,43 @@ final class VideoUploadService: ObservableObject {
         isUploading = true
         defer { isUploading = false }
         
+        print("🎥 Starting video upload for user: \(userId)")
+        print("🎥 Local video URL: \(localURL)")
+        
         // Create a unique path for the video
         let filename = "\(UUID().uuidString).mp4"
         let path = "users/\(userId)/dreams/\(filename)"
         let storageRef = storage.reference().child(path)
+        print("🎥 Firebase Storage path: \(path)")
         
         // Save video locally first
         let localCopy = try await saveVideoLocally(from: localURL, userId: userId, filename: filename)
+        print("🎥 Saved local copy at: \(localCopy)")
         
         // Start upload
         return try await withCheckedThrowingContinuation { continuation in
             let metadata = StorageMetadata()
             metadata.contentType = "video/mp4"
             
+            print("🎥 Starting Firebase Storage upload...")
             let uploadTask = storageRef.putFile(from: localCopy, metadata: metadata) { metadata, error in
                 if let error = error {
+                    print("❌ Upload failed with error: \(error)")
                     continuation.resume(throwing: error)
                     return
                 }
                 
+                print("🎥 Upload completed, getting download URL...")
                 // Get download URL
                 storageRef.downloadURL { url, error in
                     if let error = error {
+                        print("❌ Failed to get download URL: \(error)")
                         continuation.resume(throwing: error)
                     } else if let urlString = url?.absoluteString {
+                        print("✅ Got download URL: \(urlString)")
                         continuation.resume(returning: urlString)
                     } else {
+                        print("❌ No download URL available")
                         continuation.resume(throwing: VideoUploadError.failedToGetDownloadURL)
                     }
                 }
@@ -52,6 +63,7 @@ final class VideoUploadService: ObservableObject {
                     let percentComplete = Double(snapshot.progress?.completedUnitCount ?? 0) /
                         Double(snapshot.progress?.totalUnitCount ?? 1)
                     self?.uploadProgress = percentComplete
+                    print("🎥 Upload progress: \(Int(percentComplete * 100))%")
                 }
             }
             

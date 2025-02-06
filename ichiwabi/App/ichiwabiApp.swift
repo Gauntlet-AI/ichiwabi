@@ -87,6 +87,8 @@ struct IchiwabiApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .preferredColorScheme(.dark)
+                .background(Color(red: 0.05, green: 0.1, blue: 0.2))
         }
         .modelContainer(sharedModelContainer)
     }

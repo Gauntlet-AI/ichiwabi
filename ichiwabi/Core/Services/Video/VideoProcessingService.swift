@@ -35,6 +35,100 @@ final class VideoProcessingService: ObservableObject {
         }
     }
     
+    @MainActor
+    private func createExportSession(
+        asset: AVAsset,
+        quality: VideoQuality
+    ) throws -> AVAssetExportSession {
+        guard let exportSession = AVAssetExportSession(
+            asset: asset,
+            presetName: quality.preset
+        ) else {
+            throw VideoProcessingError.exportSessionCreationFailed
+        }
+        return exportSession
+    }
+    
+    @MainActor
+    private func configureBasicSettings(
+        _ exportSession: AVAssetExportSession,
+        outputURL: URL,
+        startTime: Double,
+        endTime: Double
+    ) {
+        exportSession.outputURL = outputURL
+        exportSession.outputFileType = .mp4
+        exportSession.timeRange = CMTimeRange(
+            start: CMTime(seconds: startTime, preferredTimescale: 600),
+            end: CMTime(seconds: endTime, preferredTimescale: 600)
+        )
+        exportSession.shouldOptimizeForNetworkUse = true
+    }
+    
+    @MainActor
+    private func configureVideoSettings(
+        _ exportSession: AVAssetExportSession,
+        asset: AVAsset,
+        quality: VideoQuality,
+        duration: Double
+    ) async throws {
+        let bitrate = await calculateBitrate(for: asset, quality: quality)
+        let composition = await createVideoComposition(for: asset)
+        exportSession.videoComposition = composition
+        exportSession.fileLengthLimit = Int64(Double(bitrate) * duration / 8.0)
+    }
+    
+    @MainActor
+    private func setupExportSession(
+        _ exportSession: AVAssetExportSession,
+        outputURL: URL,
+        startTime: Double,
+        endTime: Double,
+        asset: AVAsset,
+        quality: VideoQuality
+    ) async throws {
+        configureBasicSettings(
+            exportSession,
+            outputURL: outputURL,
+            startTime: startTime,
+            endTime: endTime
+        )
+        
+        try await configureVideoSettings(
+            exportSession,
+            asset: asset,
+            quality: quality,
+            duration: endTime - startTime
+        )
+    }
+    
+    @MainActor
+    private func performExport(
+        _ exportSession: AVAssetExportSession,
+        outputURL: URL
+    ) async throws -> URL {
+        try await withCheckedThrowingContinuation { continuation in
+            exportSession.exportAsynchronously { [weak exportSession] in
+                guard let exportSession = exportSession else {
+                    continuation.resume(throwing: VideoProcessingError.exportFailed)
+                    return
+                }
+                
+                switch exportSession.status {
+                case .completed:
+                    continuation.resume(returning: outputURL)
+                case .failed:
+                    print("Export failed with error: \(String(describing: exportSession.error))")
+                    continuation.resume(throwing: exportSession.error ?? VideoProcessingError.exportFailed)
+                case .cancelled:
+                    continuation.resume(throwing: VideoProcessingError.exportCancelled)
+                default:
+                    continuation.resume(throwing: VideoProcessingError.unknown)
+                }
+            }
+        }
+    }
+    
     func trimVideo(
         at url: URL,
         from startTime: Double,
@@ -45,52 +139,41 @@ final class VideoProcessingService: ObservableObject {
         defer { isProcessing = false }
         
         let asset = AVAsset(url: url)
-        
-        // Create output URL
         let outputURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("mp4")
         
-        // Create export session with quality preset
-        guard let exportSession = AVAssetExportSession(
+        let session = try createExportSession(asset: asset, quality: quality)
+        try await setupExportSession(
+            session,
+            outputURL: outputURL,
+            startTime: startTime,
+            endTime: endTime,
             asset: asset,
-            presetName: quality.preset
-        ) else {
-            throw VideoProcessingError.exportSessionCreationFailed
-        }
-        
-        // Configure export session
-        exportSession.outputURL = outputURL
-        exportSession.outputFileType = .mp4
-        exportSession.timeRange = CMTimeRange(
-            start: CMTime(seconds: startTime, preferredTimescale: 600),
-            end: CMTime(seconds: endTime, preferredTimescale: 600)
+            quality: quality
         )
         
-        exportSession.shouldOptimizeForNetworkUse = true
+        return try await performExport(session, outputURL: outputURL)
+    }
+    
+    private func createVideoComposition(for asset: AVAsset) async -> AVMutableVideoComposition {
+        // Create video composition
+        let videoComposition = AVMutableVideoComposition(asset: asset, applyingCIFiltersWithHandler: { request in
+            // Apply any additional processing here if needed
+            request.finish(with: request.sourceImage, context: nil)
+        })
         
-        // Create and configure video composition on the main actor
-        let composition = AVMutableVideoComposition(asset: asset) { _ in }
-        
-        // Set video composition if valid
-        if composition.renderSize.width > 0 && composition.renderSize.height > 0 {
-            exportSession.videoComposition = composition
+        // Ensure video is in portrait orientation
+        if let videoTrack = try? await asset.loadTracks(withMediaType: .video).first {
+            let size = try? await videoTrack.load(.naturalSize)
+            if let size = size {
+                videoComposition.renderSize = CGSize(width: min(size.width, size.height),
+                                                   height: max(size.width, size.height))
+                videoComposition.frameDuration = CMTime(value: 1, timescale: 30)
+            }
         }
         
-        // Perform the export
-        await exportSession.export()
-        
-        // Handle result
-        switch exportSession.status {
-        case .completed:
-            return outputURL
-        case .failed:
-            throw exportSession.error ?? VideoProcessingError.exportFailed
-        case .cancelled:
-            throw VideoProcessingError.exportCancelled
-        default:
-            throw VideoProcessingError.unknown
-        }
+        return videoComposition
     }
     
     private func calculateBitrate(for asset: AVAsset, quality: VideoQuality) async -> Int {
@@ -118,6 +201,24 @@ final class VideoProcessingService: ObservableObject {
         
         // Ensure bitrate is within reasonable bounds
         return min(max(adjustedBitrate, 1_000_000), 8_000_000)
+    }
+    
+    @MainActor
+    private func handleExportResult(
+        _ exportSession: AVAssetExportSession,
+        outputURL: URL
+    ) throws -> URL {
+        switch exportSession.status {
+        case .completed:
+            return outputURL
+        case .failed:
+            print("Export failed with error: \(String(describing: exportSession.error))")
+            throw exportSession.error ?? VideoProcessingError.exportFailed
+        case .cancelled:
+            throw VideoProcessingError.exportCancelled
+        default:
+            throw VideoProcessingError.unknown
+        }
     }
 }
 

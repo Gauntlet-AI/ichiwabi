@@ -112,17 +112,17 @@ struct HomeView: View {
         VStack(spacing: 16) {
             HStack {
                 Image(systemName: "flame.fill")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(.yellow)
                 Text("\(viewModel.currentStreak) Day Streak")
                     .font(.headline)
-                    .foregroundColor(.black)
+                    .foregroundColor(.white)
                 Spacer()
                 NavigationLink {
                     CalendarView(userId: currentUser?.id ?? "")
                 } label: {
                     Text("View Calendar")
                         .font(.subheadline)
-                        .foregroundColor(.black)
+                        .foregroundColor(.white)
                 }
             }
             
@@ -130,13 +130,13 @@ struct HomeView: View {
             HStack(spacing: 4) {
                 ForEach(0..<7, id: \.self) { index in
                     Circle()
-                        .fill(index < viewModel.currentStreak ? Color.orange : Color.gray.opacity(0.3))
+                        .fill(index < viewModel.currentStreak ? Color.yellow : Color.gray.opacity(0.3))
                         .frame(height: 8)
                 }
             }
         }
         .padding()
-        .background(Color.orange.opacity(0.1))
+        .background(Color.yellow.opacity(0.15))
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
     
@@ -172,5 +172,47 @@ struct HomeView: View {
                 }
             }
         }
+    }
+}
+
+#Preview {
+    do {
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: User.self, Dream.self, configurations: config)
+        
+        // Create sample user
+        let user = User(
+            id: "preview_user",
+            username: "dreamwalker",
+            displayName: "Dream Walker",
+            email: "dream@example.com"
+        )
+        
+        // Create sample dreams
+        let dreams = [
+            Dream(
+                title: "Flying Over Mountains",
+                transcript: "I was soaring over snow-capped peaks, feeling the crisp wind against my face...",
+                dreamDate: Date(),
+                userId: user.id
+            ),
+            Dream(
+                title: "Underwater City",
+                transcript: "Discovered a magnificent city beneath the waves, with buildings made of coral...",
+                dreamDate: Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? Date(),
+                userId: user.id
+            )
+        ]
+        
+        // Add to container
+        container.mainContext.insert(user)
+        dreams.forEach { container.mainContext.insert($0) }
+        
+        return HomeView(userId: user.id)
+            .modelContainer(container)
+            .preferredColorScheme(.dark)
+            .background(Color(red: 0.05, green: 0.1, blue: 0.2))
+    } catch {
+        return Text("Failed to create preview: \(error.localizedDescription)")
     }
 } 

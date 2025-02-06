@@ -32,7 +32,7 @@ struct VideoTrimmerView: View {
                 // Video preview
                 if let player = player {
                     VideoPlayer(player: player)
-                        .aspectRatio(16/9, contentMode: .fit)
+                        .aspectRatio(9/16, contentMode: .fit)
                         .cornerRadius(12)
                         .overlay(
                             RoundedRectangle(cornerRadius: 12)
@@ -52,15 +52,15 @@ struct VideoTrimmerView: View {
                         Rectangle()
                             .fill(Color.accentColor.opacity(0.3))
                             .frame(
-                                width: CGFloat((endTime - startTime) / duration) * geometry.size.width,
+                                width: max(0, CGFloat((endTime - startTime) / max(duration, 1)) * geometry.size.width),
                                 height: thumbnailHeight
                             )
-                            .offset(x: CGFloat(startTime / duration) * geometry.size.width)
+                            .offset(x: max(0, CGFloat(startTime / max(duration, 1)) * geometry.size.width))
                         
                         // Start handle
                         trimHandle(at: startTime, isDragging: $isDraggingStart)
                             .position(
-                                x: CGFloat(startTime / duration) * geometry.size.width,
+                                x: max(0, CGFloat(startTime / max(duration, 1)) * geometry.size.width),
                                 y: thumbnailHeight / 2
                             )
                             .gesture(
@@ -75,7 +75,7 @@ struct VideoTrimmerView: View {
                         // End handle
                         trimHandle(at: endTime, isDragging: $isDraggingEnd)
                             .position(
-                                x: CGFloat(endTime / duration) * geometry.size.width,
+                                x: max(0, min(CGFloat(endTime / max(duration, 1)) * geometry.size.width, geometry.size.width)),
                                 y: thumbnailHeight / 2
                             )
                             .gesture(
