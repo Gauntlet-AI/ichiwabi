@@ -28,6 +28,7 @@ struct ContentView: View {
                 switch authService.authState {
                 case .loading:
                     ProgressView()
+                        .tint(Theme.textPrimary)
                 case .signedOut:
                     SignInView()
                         .environment(authService)
@@ -43,6 +44,7 @@ struct ContentView: View {
                         }
                     } else {
                         ProgressView()
+                            .tint(Theme.textPrimary)
                             .onAppear {
                                 print("⚠️ User is signed in but no user data found")
                             }
@@ -50,13 +52,17 @@ struct ContentView: View {
                 }
             } else {
                 ProgressView()
+                    .tint(Theme.textPrimary)
             }
         }
         .onAppear {
             if authService == nil {
                 authService = AuthenticationService(context: modelContext)
             }
+            Theme.applyTheme()
         }
+        .background(Theme.darkNavy)
+        .foregroundColor(Theme.textPrimary)
     }
 }
 

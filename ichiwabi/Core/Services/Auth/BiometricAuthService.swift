@@ -132,7 +132,7 @@ final class BiometricAuthService {
             throw BiometricError.notAvailable
         }
         
-        let reason = "Unlock ichiwabi"
+        let reason = "Unlock yorutabi"
         print("🔐 Requesting authentication with reason: \(reason)")
         
         do {

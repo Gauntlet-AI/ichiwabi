@@ -10,7 +10,7 @@ struct WatermarkView: View {
             HStack {
                 Image(systemName: "moon.stars.fill")
                     .foregroundStyle(.white)
-                Text("ichiwabi")
+                Text("ｙｏｒｕｔａｂｉ")
                     .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(.white)
             }
@@ -26,10 +26,10 @@ struct WatermarkView: View {
             // Dream date
             Text(date.formatted(date: .abbreviated, time: .omitted))
                 .font(.system(size: 12))
-                .foregroundStyle(.white.opacity(0.8))
+                .foregroundStyle(.white.opacity(0.9))
         }
         .padding(8)
-        .background(.black.opacity(0.3))
+        .background(.black.opacity(0.5))
         .cornerRadius(8)
         .padding(12)
     }

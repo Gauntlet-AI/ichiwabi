@@ -4,8 +4,8 @@ import SwiftData
 struct SignInView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var authService: AuthenticationService?
-    @State private var email = "benjamin.vizy@gauntletai.com"  // Pre-populated email
-    @State private var password = "1loveBenji!"  // Pre-populated password
+    @State private var email = ""  // Empty email field
+    @State private var password = ""  // Empty password field
     @State private var username = ""
     @State private var isSignUp = false
     @State private var showError = false
@@ -70,7 +70,7 @@ private struct SignInContentView: View {
                     .frame(width: 100, height: 100)
                     .cornerRadius(20)
                 
-                Text("Welcome to ichiwabi")
+                Text("Welcome to yorutabi")
                     .font(.largeTitle)
                     .fontWeight(.bold)
                 

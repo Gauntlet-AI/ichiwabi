@@ -6,20 +6,22 @@ struct HomeView: View {
     @EnvironmentObject private var syncViewModel: SyncViewModel
     @Query private var users: [User]
     @State private var showError = false
-    @StateObject private var viewModel = HomeViewModel()
+    @StateObject private var viewModel: HomeViewModel
     let userId: String
     
     private var currentUser: User? {
         users.first
     }
     
-    init(userId: String) {
+    @MainActor
+    init(userId: String, viewModel: HomeViewModel? = nil) {
         self.userId = userId
+        _viewModel = StateObject(wrappedValue: viewModel ?? HomeViewModel())
     }
     
     var body: some View {
         mainContent
-            .navigationTitle("ichiwabi")
+            .navigationTitle("yorutabi")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -95,10 +97,11 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Welcome back,")
                 .font(.title2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.textSecondary)
             Text(user.displayName)
                 .font(.title)
                 .bold()
+                .foregroundColor(Theme.textPrimary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -116,7 +119,7 @@ struct HomeView: View {
             .frame(maxWidth: .infinity)
             .padding()
             .background(Color.accentColor)
-            .foregroundColor(.black)
+            .foregroundColor(Theme.darkNavy)
             .clipShape(RoundedRectangle(cornerRadius: 16))
         }
     }
@@ -158,14 +161,14 @@ struct HomeView: View {
             HStack {
                 Text("Recent Dreams")
                     .font(.headline)
-                    .foregroundColor(.black)
+                    .foregroundColor(Theme.textPrimary)
                 Spacer()
                 NavigationLink {
                     LibraryView(filterDate: Date())
                 } label: {
                     Text("View All")
                         .font(.subheadline)
-                        .foregroundColor(.black)
+                        .foregroundColor(Theme.textPrimary)
                 }
             }
             
@@ -175,6 +178,7 @@ struct HomeView: View {
                     systemImage: "moon.zzz",
                     description: Text("Dreams you record will appear here")
                 )
+                .foregroundColor(Theme.textPrimary)
             } else {
                 LazyVStack(spacing: 12) {
                     ForEach(viewModel.recentDreams) { dream in
@@ -189,59 +193,146 @@ struct HomeView: View {
 }
 
 private extension HomeView {
-    static func makePreview() -> AnyView {
-        do {
-            let config = ModelConfiguration(isStoredInMemoryOnly: true)
-            let container = try ModelContainer(for: User.self, Dream.self, configurations: config)
-            
-            // Create sample user
-            let user = User(
-                id: "preview_user",
-                username: "dreamwalker",
-                displayName: "Dream Walker",
-                email: "dream@example.com"
-            )
-            
-            // Create sample dreams
-            let dreams = [
-                Dream(
-                    userId: user.id,
-                    title: "Flying Over Mountains",
-                    description: "I was soaring over snow-capped peaks, feeling the crisp wind against my face...",
-                    date: Date(),
-                    videoURL: URL(string: "https://example.com/video1.mp4")!,
-                    transcript: "I was soaring over snow-capped peaks, feeling the crisp wind against my face...",
-                    dreamDate: Date()
-                ),
-                Dream(
-                    userId: user.id,
-                    title: "Underwater City",
-                    description: "Discovered a magnificent city beneath the waves, with buildings made of coral...",
-                    date: Date(),
-                    videoURL: URL(string: "https://example.com/video2.mp4")!,
-                    transcript: "Discovered a magnificent city beneath the waves, with buildings made of coral...",
-                    dreamDate: Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? Date()
-                )
-            ]
-            
-            // Add to container
-            container.mainContext.insert(user)
-            dreams.forEach { container.mainContext.insert($0) }
-            
-            return AnyView(
-                HomeView(userId: user.id)
-                    .modelContainer(container)
+    struct PreviewWrapper: View {
+        let content: AnyView
+        
+        var body: some View {
+            NavigationStack {
+                content
                     .preferredColorScheme(.dark)
-                    .background(Color(red: 0.05, green: 0.1, blue: 0.2))
+                    .background(Theme.darkNavy)
+            }
+        }
+    }
+    
+    @MainActor
+    static func createPreviewViewModel(modelContext: ModelContext, userId: String) -> HomeViewModel {
+        let viewModel = HomeViewModel()
+        viewModel.configure(modelContext: modelContext, userId: userId)
+        
+        // Set up preview data
+        viewModel.recentDreams = [
+            Dream(
+                userId: userId,
+                title: "Flying Over Mountains",
+                description: "I was soaring over snow-capped peaks, feeling the crisp wind against my face...",
+                date: Date(),
+                videoURL: URL(string: "https://example.com/video1.mp4")!,
+                transcript: "I was soaring over snow-capped peaks, feeling the crisp wind against my face. The air was cold but exhilarating, and I could see for miles in every direction.",
+                dreamDate: Date()
+            ),
+            Dream(
+                userId: userId,
+                title: "Underwater City",
+                description: "Discovered a magnificent city beneath the waves, with buildings made of coral...",
+                date: Date(),
+                videoURL: URL(string: "https://example.com/video2.mp4")!,
+                transcript: "Discovered a magnificent city beneath the waves, with buildings made of coral and streets paved with pearls. Sea creatures swam through windows like birds.",
+                dreamDate: Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? Date()
+            ),
+            Dream(
+                userId: userId,
+                title: "Time Travel to Ancient Egypt",
+                description: "Walking among the pyramids as they were being built...",
+                date: Date(),
+                videoURL: URL(string: "https://example.com/video3.mp4")!,
+                transcript: "I found myself in ancient Egypt, watching thousands of workers building the great pyramids. The limestone blocks gleamed white in the desert sun.",
+                dreamDate: Calendar.current.date(byAdding: .day, value: -2, to: Date()) ?? Date()
             )
+        ]
+        viewModel.currentStreak = 3
+        return viewModel
+    }
+    
+    @MainActor
+    static func makePreview() -> some View {
+        // Create a simple user for the preview
+        let user = User(
+            id: "preview_user",
+            username: "dreamwalker",
+            displayName: "Dream Walker",
+            email: "dream@example.com"
+        )
+        
+        // Create minimal container just for the user
+        do {
+            let container = try ModelContainer(for: User.self, Dream.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+            let context = ModelContext(container)
+            context.insert(user)
+            
+            // Create and configure the preview view model
+            let viewModel = createPreviewViewModel(modelContext: context, userId: "preview_user")
+            
+            return PreviewWrapper(content: AnyView(
+                HomeView(userId: "preview_user", viewModel: viewModel)
+                    .modelContainer(container)
+                    .environmentObject(SyncViewModel(modelContext: context))
+            ))
         } catch {
-            return AnyView(
-                Text("Failed to create preview: \(error.localizedDescription)")
-            )
+            return PreviewWrapper(content: AnyView(
+                Text("Preview creation failed")
+                    .foregroundColor(Theme.textPrimary)
+            ))
         }
     }
 }
 
 #Preview {
-    HomeView.makePreview()
+    do {
+        let container = try ModelContainer(for: User.self, Dream.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let context = ModelContext(container)
+        
+        // Create and insert user
+        let user = User(
+            id: "preview_user",
+            username: "dreamwalker",
+            displayName: "Dream Walker",
+            email: "dream@example.com"
+        )
+        context.insert(user)
+        
+        // Create view model with sample data
+        let viewModel = HomeViewModel()
+        viewModel.recentDreams = [
+            Dream(
+                userId: "preview_user",
+                title: "Flying Over Mountains",
+                description: "I was soaring over snow-capped peaks...",
+                date: Date(),
+                videoURL: URL(string: "https://example.com/video1.mp4")!,
+                transcript: "I was soaring over snow-capped peaks, feeling the crisp wind against my face.",
+                dreamDate: Date()
+            ),
+            Dream(
+                userId: "preview_user",
+                title: "Underwater City",
+                description: "Discovered a magnificent city beneath the waves...",
+                date: Date(),
+                videoURL: URL(string: "https://example.com/video2.mp4")!,
+                transcript: "Discovered a magnificent city beneath the waves, with buildings made of coral.",
+                dreamDate: Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? Date()
+            ),
+            Dream(
+                userId: "preview_user",
+                title: "Time Travel to Ancient Egypt",
+                description: "Walking among the pyramids...",
+                date: Date(),
+                videoURL: URL(string: "https://example.com/video3.mp4")!,
+                transcript: "I found myself in ancient Egypt, watching the pyramids being built.",
+                dreamDate: Calendar.current.date(byAdding: .day, value: -2, to: Date()) ?? Date()
+            )
+        ]
+        viewModel.currentStreak = 3
+        
+        return NavigationStack {
+            HomeView(userId: "preview_user", viewModel: viewModel)
+                .modelContainer(container)
+                .environmentObject(SyncViewModel(modelContext: context))
+                .preferredColorScheme(.dark)
+                .background(Theme.darkNavy)
+        }
+    } catch {
+        return Text("Failed to create preview")
+            .foregroundColor(Theme.textPrimary)
+    }
 } 

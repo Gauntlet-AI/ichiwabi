@@ -149,13 +149,11 @@ struct OnboardingView: View {
                             Text("""
                             Terms of Service
 
-                            By using ichiwabi, you agree to:
+                            By using yorutabi, you agree to:
                             
-                            1. Create and share content that is appropriate and respectful
-                            2. Respect other users' privacy and intellectual property
-                            3. Not engage in harassment or harmful behavior
-                            4. Allow us to use your content within the app
-                            5. Accept our privacy policy regarding data collection and usage
+                            1. have fun.
+                            2. have a lot of fun.
+                            3. have a super duper lots of fun time.
                             
                             For the complete terms, visit our website.
                             """)

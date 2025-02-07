@@ -31,99 +31,117 @@ struct DreamPlaybackView: View {
     
     var body: some View {
         NavigationStack {
-            ScrollView(.vertical, showsIndicators: true) {
-                VStack(spacing: 20) {
-                    // Video player
-                    if let player = player {
-                        ZStack(alignment: .bottomLeading) {
-                            VideoPlayer(player: player)
-                                .aspectRatio(9/16, contentMode: .fit)
-                                .frame(maxHeight: 400)
-                                .cornerRadius(12)
-                            
-                            WatermarkView(
-                                date: dream.dreamDate,
-                                title: dream.title
-                            )
-                        }
-                    } else if isLoading {
-                        ProgressView("Loading video...")
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 400)
-                    } else {
-                        ProgressView()
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 400)
+            mainContent
+                .background(Theme.darkNavy)
+                .navigationTitle("Dream Playback")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbarColorScheme(.dark, for: .navigationBar)
+                .toolbarBackground(Theme.darkNavy, for: .navigationBar)
+                .toolbarBackground(.visible, for: .navigationBar)
+                .navigationBarItems(trailing: navigationButtons)
+                .alert("Error", isPresented: .init(
+                    get: { errorMessage != nil },
+                    set: { if !$0 { errorMessage = nil } }
+                )) {
+                    Button("OK", role: .cancel) { }
+                } message: {
+                    if let errorMessage = errorMessage {
+                        Text(errorMessage)
                     }
+                }
+                .onAppear {
+                    setupPlayer()
+                }
+                .onDisappear {
+                    player?.pause()
+                    player = nil
+                    if let tempURL = temporaryShareURL {
+                        try? FileManager.default.removeItem(at: tempURL)
+                    }
+                }
+                .sheet(isPresented: $isSharePresented) {
+                    if let shareURL = temporaryShareURL {
+                        ShareSheet(activityItems: [shareText, shareURL])
+                    }
+                }
+        }
+    }
+    
+    private var mainContent: some View {
+        ScrollView(.vertical, showsIndicators: true) {
+            VStack(spacing: 20) {
+                videoPlayerSection
+                    .frame(maxWidth: .infinity)
+                
+                VStack(alignment: .leading, spacing: 24) {
+                    Text(dream.title)
+                        .font(.title2)
+                        .bold()
+                        .foregroundColor(Theme.textPrimary)
                     
-                    // Dream details
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text(dream.title)
-                            .font(.title2)
-                            .bold()
-                        
-                        HStack {
-                            Image(systemName: "calendar")
-                            Text(dream.dreamDate.formatted(date: .long, time: .omitted))
-                        }
-                        .foregroundStyle(.secondary)
-                        
-                        if let transcript = dream.transcript {
-                            Text("Transcript")
-                                .font(.headline)
-                                .padding(.top)
-                            
-                            Text(transcript)
-                                .foregroundStyle(.secondary)
-                        }
+                    HStack {
+                        Image(systemName: "calendar")
+                        Text(dream.dreamDate.formatted(date: .long, time: .omitted))
                     }
-                    .padding()
-                }
-            }
-            .navigationTitle("Dream Playback")
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationBarItems(trailing: 
-                HStack {
-                    Button {
-                        Task {
-                            await prepareAndShare()
-                        }
-                    } label: {
-                        Image(systemName: "square.and.arrow.up")
-                    }
-                    .disabled(isLoading)
+                    .foregroundStyle(Theme.textSecondary)
                     
-                    Button("Done") {
-                        dismiss()
+                    if !dream.dreamDescription.isEmpty {
+                        Text(dream.dreamDescription)
+                            .foregroundStyle(Theme.textSecondary)
                     }
                 }
-            )
-            .alert("Error", isPresented: .init(
-                get: { errorMessage != nil },
-                set: { if !$0 { errorMessage = nil } }
-            )) {
-                Button("OK", role: .cancel) { }
-            } message: {
-                if let errorMessage = errorMessage {
-                    Text(errorMessage)
+                .padding(.horizontal)
+            }
+        }
+    }
+    
+    private var videoPlayerSection: some View {
+        Group {
+            if let player = player {
+                GeometryReader { geometry in
+                    let videoHeight = min(geometry.size.width * (16/9), 600)
+                    
+                    ZStack {
+                        VideoPlayer(player: player)
+                            .aspectRatio(9/16, contentMode: .fit)
+                            .frame(width: geometry.size.width)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: videoHeight)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
                 }
+                .frame(height: min(UIScreen.main.bounds.width * (16/9), 600))
+            } else if isLoading {
+                loadingView
+            } else {
+                loadingView
             }
         }
-        .onAppear {
-            setupPlayer()
-        }
-        .onDisappear {
-            player?.pause()
-            player = nil
-            // Clean up temporary file if it exists
-            if let tempURL = temporaryShareURL {
-                try? FileManager.default.removeItem(at: tempURL)
+    }
+    
+    private var loadingView: some View {
+        ProgressView(isLoading ? "Loading video..." : "")
+            .frame(maxWidth: .infinity)
+            .frame(height: 600)
+            .foregroundColor(Theme.textPrimary)
+    }
+    
+    private var navigationButtons: some View {
+        HStack {
+            Button {
+                Task {
+                    await prepareAndShare()
+                }
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+                    .foregroundColor(Theme.textPrimary)
             }
-        }
-        .sheet(isPresented: $isSharePresented) {
-            if let shareURL = temporaryShareURL {
-                ShareSheet(activityItems: [shareText, shareURL])
+            .disabled(isLoading)
+            
+            Button("Done") {
+                dismiss()
             }
+            .foregroundColor(Theme.textPrimary)
         }
     }
     
@@ -222,8 +240,7 @@ struct DreamPlaybackView: View {
                 return
             }
             
-            print("📤 Copying to temporary location: \(tempURL.path)")
-            // Copy file to temporary directory
+            // Copy file to temporary directory for sharing
             try FileManager.default.copyItem(at: sourceURL, to: tempURL)
             
             // Update state on main thread

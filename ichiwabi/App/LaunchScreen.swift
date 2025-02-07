@@ -11,7 +11,7 @@ struct LaunchScreen: View {
                     .frame(width: 100, height: 100)
                     .cornerRadius(20)
                 
-                Text("ichiwabi")
+                Text("yorutabi")
                     .font(.largeTitle)
                     .fontWeight(.bold)
             }

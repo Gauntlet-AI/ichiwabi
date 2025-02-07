@@ -195,11 +195,10 @@ final class VideoProcessingService: ObservableObject {
     }
     
     private func createWatermarkImage(date: Date, size: CGSize) throws -> UIImage {
-        print("🎨 Starting watermark creation with size: \(size)")
+        
         
         // Ensure we're on the main thread for SwiftUI view creation
         if !Thread.isMainThread {
-            print("🎨 Not on main thread, switching to main thread")
             var result: UIImage?
             var error: Error?
             
@@ -217,12 +216,12 @@ final class VideoProcessingService: ObservableObject {
             return result ?? UIImage()
         }
         
-        print("🎨 Creating renderer")
+        
         let renderer = UIGraphicsImageRenderer(size: size)
         
-        print("🎨 Creating watermark image")
+        
         let image = renderer.image { context in
-            print("🎨 Setting up hosting controller")
+            
             // Create a hosting controller for the watermark view
             let watermarkView = WatermarkView(
                 date: date,
@@ -231,7 +230,7 @@ final class VideoProcessingService: ObservableObject {
             let hostingController = UIHostingController(rootView: watermarkView)
             hostingController.view.backgroundColor = .clear
             
-            print("🎨 Configuring watermark size and position")
+            
             // Size the hosting view
             let watermarkSize = CGSize(width: size.width * 0.4, height: size.height * 0.15)
             hostingController.view.frame = CGRect(
@@ -241,7 +240,7 @@ final class VideoProcessingService: ObservableObject {
                 height: watermarkSize.height
             )
             
-            print("🎨 Rendering watermark")
+            
             // Render the view
             hostingController.view.drawHierarchy(
                 in: hostingController.view.bounds,
@@ -249,7 +248,7 @@ final class VideoProcessingService: ObservableObject {
             )
         }
         
-        print("🎨 Watermark creation completed")
+        
         return image
     }
     
@@ -262,11 +261,11 @@ final class VideoProcessingService: ObservableObject {
                 return
             }
             
-            print("🎨 Creating watermark for frame")
+            
             // Create the watermark image
             let watermarkImage = try? self.createWatermarkImage(date: date, size: request.renderSize)
             
-            print("🎨 Rendering frame with watermark")
+            
             // Render the original video frame
             let image = request.sourceImage
             
@@ -276,7 +275,7 @@ final class VideoProcessingService: ObservableObject {
                     translationX: 20,
                     y: 20
                )) {
-                print("🎨 Compositing watermark over frame")
+                
                 let result = image.composited(over: watermark)
                 request.finish(with: result, context: nil)
             } else {

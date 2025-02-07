@@ -43,7 +43,12 @@ class DreamDetailsViewModel: ObservableObject {
         
         // First upload the video to get both local and cloud URLs
         print("💭 Uploading video...")
-        let (localURL, cloudURL) = try await videoUploadService.uploadVideo(at: videoURL, userId: userId)
+        let (localURL, cloudURL) = try await videoUploadService.uploadVideo(
+            at: videoURL,
+            userId: userId,
+            date: dreamDate,
+            title: title
+        )
         print("💭 Video uploaded successfully")
         print("💭 Local URL: \(localURL)")
         print("💭 Cloud URL: \(cloudURL)")

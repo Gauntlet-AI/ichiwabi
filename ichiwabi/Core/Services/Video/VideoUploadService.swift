@@ -1,6 +1,7 @@
 import Foundation
 import FirebaseStorage
 import BackgroundTasks
+import AVFoundation
 
 @MainActor
 final class VideoUploadService: ObservableObject {
@@ -13,21 +14,57 @@ final class VideoUploadService: ObservableObject {
     
     // MARK: - Video Storage Management
     
-    func uploadVideo(at localURL: URL, userId: String) async throws -> (localURL: URL, cloudURL: String) {
+    func uploadVideo(at localURL: URL, userId: String, date: Date, title: String? = nil) async throws -> (localURL: URL, cloudURL: String) {
         isUploading = true
         defer { isUploading = false }
         
         print("🎥 Starting video upload for user: \(userId)")
         print("🎥 Original video URL: \(localURL)")
         
-        // Create a unique filename
+        // Process video with watermark
+        let asset = AVAsset(url: localURL)
+        let duration = try await asset.load(.duration).seconds
+        
+        // Create temporary URL for processed video
+        let tempDir = FileManager.default.temporaryDirectory
+        let processedURL = tempDir.appendingPathComponent("processed-\(UUID().uuidString).mp4")
+        
+        // Create export session with watermark
+        guard let exportSession = AVAssetExportSession(
+            asset: asset,
+            presetName: AVAssetExportPresetHighestQuality
+        ) else {
+            throw VideoProcessingError.exportSessionCreationFailed
+        }
+        
+        // Configure export
+        exportSession.outputURL = processedURL
+        exportSession.outputFileType = .mp4
+        
+        // Add watermark
+        let watermarkService = WatermarkService.shared
+        let videoComposition = try await watermarkService.applyWatermark(
+            to: asset,
+            date: date,
+            title: title
+        )
+        exportSession.videoComposition = videoComposition
+        
+        // Export the video
+        await exportSession.export()
+        
+        guard exportSession.status == .completed else {
+            throw exportSession.error ?? VideoProcessingError.exportFailed
+        }
+        
+        // Create a unique filename for the processed video
         let filename = "\(UUID().uuidString).mp4"
         let cloudPath = "users/\(userId)/dreams/\(filename)"
         let storageRef = storage.reference().child(cloudPath)
         print("🎥 Firebase Storage path: \(cloudPath)")
         
-        // Save video locally first
-        let localCopy = try await saveVideoLocally(from: localURL, userId: userId, filename: filename)
+        // Save processed video locally
+        let localCopy = try await saveVideoLocally(from: processedURL, userId: userId, filename: filename)
         print("🎥 Saved local copy at: \(localCopy)")
         
         // Start upload to Firebase Storage
@@ -75,6 +112,9 @@ final class VideoUploadService: ObservableObject {
             // Register background task
             registerBackgroundTask(for: cloudPath)
         }
+        
+        // Clean up temporary processed video
+        try? FileManager.default.removeItem(at: processedURL)
         
         return (localCopy, cloudURL)
     }

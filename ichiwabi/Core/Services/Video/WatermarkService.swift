@@ -3,59 +3,120 @@ import UIKit
 import CoreImage
 import AVFoundation
 
+// Cache struct to fix large tuple warning
+private struct WatermarkCache {
+    let image: UIImage
+    let size: CGSize
+    let date: Date
+    let title: String?
+}
+
 @MainActor
 final class WatermarkService {
     static let shared = WatermarkService()
+    private var cachedWatermark: WatermarkCache?
     
     private init() {}
     
-    func createWatermarkImage(
+    private func createWatermarkImage(
         date: Date,
         title: String?,
         size: CGSize
     ) -> UIImage? {
-        // Create a context to draw in
+        print("🎨 Starting watermark creation")
+        print("🎨 Creating image with size: \(size)")
+        
         UIGraphicsBeginImageContextWithOptions(size, false, 0)
         defer { UIGraphicsEndImageContext() }
         
-        guard let context = UIGraphicsGetCurrentContext(),
-              let watermarkBackground = UIImage(named: "watermark") else { return nil }
+        // Calculate watermark dimensions
+        let padding: CGFloat = 20 // Was 24
+        let innerPadding: CGFloat = 14 // Was 16
+        let watermarkHeight: CGFloat = title != nil ? 340 : 255 // Was 400/300
+        let watermarkWidth: CGFloat = min(size.width - (padding * 2), 680) // Was 800
         
-        // Calculate watermark size (20% of video height)
-        let watermarkHeight = size.height * 0.2
-        let watermarkWidth = watermarkHeight * (watermarkBackground.size.width / watermarkBackground.size.height)
+        // Position at bottom right with padding
         let watermarkRect = CGRect(
-            x: size.width - watermarkWidth - 20, // 20 pixels from right edge
-            y: 20, // 20 pixels from top
+            x: size.width - watermarkWidth - padding,
+            y: size.height - watermarkHeight - padding,
             width: watermarkWidth,
             height: watermarkHeight
         )
         
-        // Draw watermark background
-        watermarkBackground.draw(in: watermarkRect)
+        // Draw rounded rectangle background
+        let path = UIBezierPath(roundedRect: watermarkRect, cornerRadius: 20) // Was 24
+        UIColor.black.withAlphaComponent(0.5).setFill()
+        path.fill()
         
-        // Set up text attributes with dark color
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateStyle = .long
-        let dateString = dateFormatter.string(from: date)
+        // Current Y position for text layout
+        var currentY = watermarkRect.minY + innerPadding * 2
         
-        let textAttributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: watermarkHeight * 0.25, weight: .semibold),
-            .foregroundColor: UIColor.black
+        // App branding
+        let appTitleAttributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 68, weight: .bold), // Was 80
+            .foregroundColor: UIColor.white
         ]
         
-        // Calculate text position (centered on watermark)
-        let text = title ?? dateString
-        let textSize = (text as NSString).size(withAttributes: textAttributes)
-        let textPoint = CGPoint(
-            x: watermarkRect.midX - (textSize.width / 2),
-            y: watermarkRect.midY - (textSize.height / 2)
+        let appTitle = "ｙｏｒｕｔａｂｉ"
+        let appTitleSize = (appTitle as NSString).size(withAttributes: appTitleAttributes)
+        
+        // Draw moon icon
+        let moonSymbolConfig = UIImage.SymbolConfiguration(pointSize: 68, weight: .bold) // Was 80
+        if let moonImage = UIImage(systemName: "moon.stars.fill", withConfiguration: moonSymbolConfig) {
+            let moonRect = CGRect(
+                x: watermarkRect.maxX - appTitleSize.width - moonImage.size.width - innerPadding - 17, // Was 20
+                y: currentY,
+                width: moonImage.size.width,
+                height: moonImage.size.height
+            )
+            moonImage.withTintColor(.white).draw(in: moonRect)
+        }
+        
+        // Draw app title
+        let appTitlePoint = CGPoint(
+            x: watermarkRect.maxX - appTitleSize.width - innerPadding,
+            y: currentY
         )
+        (appTitle as NSString).draw(at: appTitlePoint, withAttributes: appTitleAttributes)
         
-        // Draw text
-        (text as NSString).draw(at: textPoint, withAttributes: textAttributes)
+        currentY += appTitleSize.height + 17 // Was 20
         
-        return UIGraphicsGetImageFromCurrentImageContext()
+        // Draw dream title if available
+        if let title = title {
+            let titleAttributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 60, weight: .medium), // Was 70
+                .foregroundColor: UIColor.white
+            ]
+            let titleSize = (title as NSString).size(withAttributes: titleAttributes)
+            let titlePoint = CGPoint(
+                x: watermarkRect.maxX - titleSize.width - innerPadding,
+                y: currentY
+            )
+            (title as NSString).draw(at: titlePoint, withAttributes: titleAttributes)
+            currentY += titleSize.height + 17 // Was 20
+        }
+        
+        // Draw date
+        let dateAttributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 51), // Was 60
+            .foregroundColor: UIColor.white.withAlphaComponent(0.9)
+        ]
+        let dateString = date.formatted(date: .abbreviated, time: .omitted)
+        let dateSize = (dateString as NSString).size(withAttributes: dateAttributes)
+        let datePoint = CGPoint(
+            x: watermarkRect.maxX - dateSize.width - innerPadding,
+            y: currentY
+        )
+        (dateString as NSString).draw(at: datePoint, withAttributes: dateAttributes)
+        
+        guard let image = UIGraphicsGetImageFromCurrentImageContext() else {
+            print("❌ Failed to create watermark image")
+            return nil
+        }
+        
+        print("✅ Watermark image created successfully")
+        print("🎨 - Final image size: \(image.size)")
+        return image
     }
     
     func applyWatermark(
@@ -63,37 +124,84 @@ final class WatermarkService {
         date: Date,
         title: String? = nil
     ) async throws -> AVMutableVideoComposition {
+        print("\n🎬 Starting watermark application")
+        
         // Get video size
         guard let track = try? await videoAsset.loadTracks(withMediaType: .video).first,
               let size = try? await track.load(.naturalSize) else {
+            print("❌ Failed to get video track or size")
             throw WatermarkError.videoTrackNotFound
         }
         
+        print("🎬 Video details:")
+        print("🎬 - Size: \(size)")
+        
         // Create watermark image
-        guard let watermarkImage = createWatermarkImage(
-            date: date,
-            title: title,
-            size: size
-        ) else {
+        guard let watermarkImage = createWatermarkImage(date: date, title: title, size: size) else {
+            print("❌ Failed to create watermark image")
             throw WatermarkError.watermarkCreationFailed
         }
         
-        // Create CIImage from watermark
-        guard let watermarkCIImage = CIImage(image: watermarkImage) else {
+        print("🎬 Converting watermark to CIImage")
+        guard var watermarkCIImage = CIImage(image: watermarkImage) else {
+            print("❌ Failed to convert watermark to CIImage")
             throw WatermarkError.watermarkCreationFailed
         }
+        
+        // Scale the watermark CIImage to match video dimensions
+        let scale = CGAffineTransform(scaleX: 1.0/3.0, y: 1.0/3.0)
+        watermarkCIImage = watermarkCIImage.transformed(by: scale)
+        
+        print("✅ Converted to CIImage")
+        print("🎬 - Original CIImage extent: \(watermarkCIImage.extent)")
+        
+        // Ensure the watermark is properly bounded
+        watermarkCIImage = watermarkCIImage.clampedToExtent()
+        print("🎬 - Clamped CIImage extent: \(watermarkCIImage.extent)")
+        
+        // Create the filter once
+        print("🎬 Creating compositing filter")
+        guard let filter = CIFilter(name: "CISourceOverCompositing") else {
+            print("❌ Failed to create CISourceOverCompositing filter")
+            throw WatermarkError.filterCreationFailed
+        }
+        
+        // Set the watermark as input
+        filter.setValue(watermarkCIImage, forKey: kCIInputImageKey)
+        print("✅ Set watermark as input image")
+        
+        var frameCount = 0
         
         // Create video composition
+        print("🎬 Creating video composition")
         let composition = AVMutableVideoComposition(asset: videoAsset) { request in
-            // Get the source frame
-            let source = request.sourceImage
+            frameCount += 1
+            if frameCount == 1 {
+                print("🎬 Processing first frame:")
+            }
             
-            // Composite watermark over video frame
-            let output = source.composited(over: watermarkCIImage)
+            // Ensure source image is properly bounded
+            let sourceImage = request.sourceImage.clampedToExtent()
+            if frameCount == 1 {
+                print("🎬 - Source image extent: \(sourceImage.extent)")
+            }
             
-            // Return the combined image
-            request.finish(with: output, context: nil)
+            filter.setValue(sourceImage, forKey: kCIInputBackgroundImageKey)
+            
+            if let output = filter.outputImage?.cropped(to: sourceImage.extent) {
+                if frameCount == 1 {
+                    print("✅ First frame composited successfully")
+                    print("🎬 - Output image extent: \(output.extent)")
+                }
+                request.finish(with: output, context: nil)
+            } else {
+                print("❌ Failed to get output image for frame \(frameCount)")
+                request.finish(with: sourceImage, context: nil)
+            }
         }
+        
+        composition.renderSize = size
+        print("🎬 Composition created with render size: \(size)")
         
         return composition
     }
@@ -103,6 +211,7 @@ final class WatermarkService {
 enum WatermarkError: LocalizedError {
     case videoTrackNotFound
     case watermarkCreationFailed
+    case filterCreationFailed
     
     var errorDescription: String? {
         switch self {
@@ -110,6 +219,8 @@ enum WatermarkError: LocalizedError {
             return "Could not find video track in asset"
         case .watermarkCreationFailed:
             return "Failed to create watermark image"
+        case .filterCreationFailed:
+            return "Failed to create compositing filter"
         }
     }
-} 
+}

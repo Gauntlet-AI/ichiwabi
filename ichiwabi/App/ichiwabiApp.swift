@@ -88,6 +88,20 @@ struct IchiwabiApp: App {
                 try FileManager.default.removeItem(at: modelConfiguration.url)
                 print("🗑️ Deleted corrupted store file")
                 
+                // Also delete any Core Data SQLite files that might exist
+                let storeURL = URL.documentsDirectory.appending(path: "default.store")
+                let sqliteFiles = [
+                    storeURL,
+                    storeURL.appendingPathExtension("sqlite"),
+                    storeURL.appendingPathExtension("sqlite-shm"),
+                    storeURL.appendingPathExtension("sqlite-wal")
+                ]
+                
+                for url in sqliteFiles {
+                    try? FileManager.default.removeItem(at: url)
+                    print("🗑️ Attempted to delete Core Data file: \(url.lastPathComponent)")
+                }
+                
                 // Try to create a new store
                 let container = try ModelContainer(for: schema, configurations: modelConfiguration)
                 print("✅ Recovery successful - new ModelContainer created")
@@ -124,6 +138,9 @@ struct IchiwabiApp: App {
                 }
             }
             .modelContainer(sharedModelContainer)
+            .preferredColorScheme(.dark)
+            .background(Color(red: 0.05, green: 0.1, blue: 0.2))
+            .tint(.white)
             .task {
                 // Initialize SyncViewModel here
                 if syncViewModel == nil {
