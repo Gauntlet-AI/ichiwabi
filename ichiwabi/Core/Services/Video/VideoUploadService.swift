@@ -174,20 +174,59 @@ final class VideoUploadService: ObservableObject {
             print("Could not schedule background task: \(error)")
         }
     }
+    
+    func downloadVideo(from url: URL, userId: String) async throws -> URL {
+        print("📥 Starting video download from: \(url)")
+        
+        // Create local storage path
+        guard let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            throw VideoUploadError.storageError
+        }
+        
+        let localDirPath = "dreams/\(userId)"
+        let localDir = documentsPath.appendingPathComponent(localDirPath)
+        let localPath = "\(localDirPath)/\(UUID().uuidString).mp4"
+        let localURL = documentsPath.appendingPathComponent(localPath)
+        
+        print("📥 Local path will be: \(localPath)")
+        
+        // Create directory if needed
+        try FileManager.default.createDirectory(
+            at: localDir,
+            withIntermediateDirectories: true
+        )
+        
+        // Download the file
+        print("📥 Downloading video data")
+        let (data, _) = try await URLSession.shared.data(from: url)
+        
+        // Save to local storage
+        print("📥 Saving video to local storage")
+        try data.write(to: localURL)
+        
+        print("📥 Video downloaded successfully")
+        return localURL
+    }
 }
 
 // MARK: - Errors
 
 enum VideoUploadError: LocalizedError {
+    case storageError
+    case uploadError
+    case downloadError
     case failedToGetDownloadURL
-    case uploadCancelled
     
     var errorDescription: String? {
         switch self {
+        case .storageError:
+            return "Failed to access local storage"
+        case .uploadError:
+            return "Failed to upload video"
+        case .downloadError:
+            return "Failed to download video"
         case .failedToGetDownloadURL:
-            return "Failed to get download URL for uploaded video"
-        case .uploadCancelled:
-            return "Video upload was cancelled"
+            return "Failed to get download URL"
         }
     }
 } 

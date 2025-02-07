@@ -7,33 +7,31 @@ struct DreamCell: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(dream.title)
                 .font(.headline)
-                .foregroundColor(.primary)
             
             if let transcript = dream.transcript {
                 Text(transcript)
                     .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .lineLimit(2)
             }
             
             HStack {
                 Image(systemName: "calendar")
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 Text(dream.dreamDate.formatted(date: .abbreviated, time: .omitted))
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 
                 if !dream.videoURL.absoluteString.isEmpty {
                     Spacer()
                     Image(systemName: "video.fill")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
             }
         }
         .padding()
-        .background(Color(.systemBackground))
+        .background(Color(.secondarySystemBackground))
         .cornerRadius(12)
-        .shadow(radius: 2)
     }
 }
 

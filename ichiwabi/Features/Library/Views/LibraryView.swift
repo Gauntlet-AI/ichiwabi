@@ -6,6 +6,7 @@ struct LibraryView: View {
     @Query private var dreams: [Dream]
     let filterDate: Date
     @State private var dreamToEdit: Dream?
+    @State private var dreamToPlay: Dream?
     
     init(filterDate: Date) {
         self.filterDate = filterDate
@@ -28,13 +29,40 @@ struct LibraryView: View {
         List {
             ForEach(dreams) { dream in
                 DreamCell(dream: dream)
+                    .listRowBackground(Color.clear)
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        dreamToEdit = dream
+                        print("🎥 Tapped dream: \(dream.title)")
+                        print("🎥 Video URL: \(dream.videoURL)")
+                        if !dream.videoURL.absoluteString.isEmpty {
+                            print("🎥 Playing video")
+                            dreamToPlay = dream
+                        } else {
+                            print("🎥 Editing dream")
+                            dreamToEdit = dream
+                        }
+                    }
+                    .contextMenu {
+                        Button {
+                            dreamToEdit = dream
+                        } label: {
+                            Label("Edit", systemImage: "pencil")
+                        }
+                        
+                        if !dream.videoURL.absoluteString.isEmpty {
+                            Button {
+                                dreamToPlay = dream
+                            } label: {
+                                Label("Play", systemImage: "play.fill")
+                            }
+                        }
                     }
             }
         }
         .navigationTitle(filterDate.formatted(date: .long, time: .omitted))
+        .navigationBarTitleDisplayMode(.inline)
+        .listStyle(.plain)
+        .background(Color(.systemBackground))
         .overlay {
             if dreams.isEmpty {
                 ContentUnavailableView(
@@ -45,7 +73,14 @@ struct LibraryView: View {
             }
         }
         .sheet(item: $dreamToEdit) { dream in
-            DreamEditView(dream: dream)
+            NavigationStack {
+                DreamEditView(dream: dream)
+            }
+        }
+        .sheet(item: $dreamToPlay) { dream in
+            NavigationStack {
+                DreamPlaybackView(dream: dream, modelContext: modelContext)
+            }
         }
     }
 } 

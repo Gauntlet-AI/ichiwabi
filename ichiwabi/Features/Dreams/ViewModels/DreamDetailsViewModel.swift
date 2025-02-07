@@ -17,10 +17,13 @@ class DreamDetailsViewModel: ObservableObject {
     @Published var error: Error?
     @Published var uploadProgress: Double = 0
     
-    init(videoURL: URL, dreamService: DreamService, userId: String) {
+    init(videoURL: URL, dreamService: DreamService, userId: String, initialTitle: String? = nil) {
         self.videoURL = videoURL
         self.dreamService = dreamService
         self.userId = userId
+        if let initialTitle = initialTitle {
+            self.title = initialTitle
+        }
         
         // Start transcription when initialized
         Task {

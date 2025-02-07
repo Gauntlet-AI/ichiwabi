@@ -598,29 +598,41 @@ extension VideoCaptureService {
         startRecordingTimer()
     }
     
-    func stopRecording() async throws -> URL {
-        guard isRecording,
-              let videoOutput = videoOutput else {
-            throw VideoCaptureError.notRecording
-        }
-        
+    func stopRecording() async throws -> URL? {
         print("📷 Stopping recording")
-        logPreviewLayerState()
+        guard let output = videoOutput, output.isRecording else { return nil }
         
-        return try await withCheckedThrowingContinuation { continuation in
-            completion = { result in
-                switch result {
-                case .success(let url):
-                    print("📷 Recording stopped successfully")
+        return await withCheckedContinuation { continuation in
+            sessionQueue.async { [weak self] in
+                guard let self = self else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                
+                print("📷 Preview layer state:")
+                print("📷 - Has preview layer: \(self.previewLayer != nil)")
+                print("📷 - Connection enabled: \(self.previewLayer?.connection?.isEnabled)")
+                print("📷 - Frame: \(String(describing: self.previewLayer?.frame))")
+                print("📷 - Session running: \(self.previewLayer?.session?.isRunning)")
+                
+                print("📷 Ensuring preview layer stays active")
+                
+                output.stopRecording()
+                
+                // Ensure UI updates happen on main thread
+                Task { @MainActor in
+                    self.isRecording = false
+                    self.recordingDuration = 0
+                    self.recordingTimer?.invalidate()
+                    self.recordingTimer = nil
+                }
+                
+                if let url = self.recordingURL {
                     continuation.resume(returning: url)
-                case .failure(let error):
-                    print("📷 Recording stopped with error: \(error)")
-                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: nil)
                 }
             }
-            
-            ensurePreviewContinues()
-            videoOutput.stopRecording()
         }
     }
     

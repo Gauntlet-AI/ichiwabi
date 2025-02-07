@@ -49,6 +49,7 @@ struct IchiwabiApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @StateObject private var notificationService = NotificationService.shared
     @State private var showingRecorder = false
+    @State private var syncViewModel: SyncViewModel?
     
     var sharedModelContainer: ModelContainer = {
         print("\n📱 ==================== APP INIT ====================")
@@ -99,23 +100,48 @@ struct IchiwabiApp: App {
             }
         }
     }()
-
+    
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .onChange(of: notificationService.lastNotificationAction) { oldValue, newValue in
-                    if newValue == .recordDream {
-                        showingRecorder = true
-                        // Reset the action after handling
-                        notificationService.lastNotificationAction = nil
+            Group {
+                if let syncViewModel = syncViewModel {
+                    ContentView()
+                        .onChange(of: notificationService.lastNotificationAction) { oldValue, newValue in
+                            if newValue == .recordDream {
+                                showingRecorder = true
+                                // Reset the action after handling
+                                notificationService.lastNotificationAction = nil
+                            }
+                        }
+                        .fullScreenCover(isPresented: $showingRecorder) {
+                            if let userId = Auth.auth().currentUser?.uid {
+                                DreamRecorderView(userId: userId)
+                            }
+                        }
+                        .environmentObject(syncViewModel)
+                } else {
+                    ProgressView()
+                }
+            }
+            .modelContainer(sharedModelContainer)
+            .task {
+                // Initialize SyncViewModel here
+                if syncViewModel == nil {
+                    syncViewModel = SyncViewModel(modelContext: sharedModelContainer.mainContext)
+                }
+                // Start sync when app launches if user is logged in
+                if Auth.auth().currentUser != nil {
+                    await syncViewModel?.syncDreams()
+                }
+            }
+            .onChange(of: Auth.auth().currentUser) { oldValue, newValue in
+                // Sync when user logs in
+                if newValue != nil {
+                    Task {
+                        await syncViewModel?.syncDreams()
                     }
                 }
-                .fullScreenCover(isPresented: $showingRecorder) {
-                    if let userId = Auth.auth().currentUser?.uid {
-                        DreamRecorderView(userId: userId)
-                    }
-                }
-                .modelContainer(sharedModelContainer)
+            }
         }
     }
 }

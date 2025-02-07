@@ -1,6 +1,8 @@
 import Foundation
 import AVFoundation
 import CoreMedia
+import UIKit
+import SwiftUI
 
 @MainActor
 final class VideoProcessingService: ObservableObject {
@@ -146,35 +148,145 @@ final class VideoProcessingService: ObservableObject {
         }
     }
     
-    func trimVideo(
-        at url: URL,
-        from startTime: Double,
-        to endTime: Double,
-        quality: VideoQuality = .medium,
-        date: Date? = nil,
-        title: String? = nil
-    ) async throws -> URL {
+    func trimVideo(at videoURL: URL, from startTime: Double, to endTime: Double, date: Date, title: String?) async throws -> URL {
         isProcessing = true
         defer { isProcessing = false }
         
-        let asset = AVAsset(url: url)
-        let outputURL = FileManager.default.temporaryDirectory
+        let asset = AVAsset(url: videoURL)
+        let duration = try await asset.load(.duration).seconds
+        
+        // Validate time range
+        let validatedStart = max(0, min(startTime, duration))
+        let validatedEnd = max(validatedStart + 1, min(endTime, duration))
+        
+        // Create export session
+        guard let exportSession = AVAssetExportSession(
+            asset: asset,
+            presetName: AVAssetExportPresetHighestQuality
+        ) else {
+            throw NSError(domain: "VideoProcessing", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create export session"])
+        }
+        
+        // Create temporary URL for trimmed video
+        let trimmedURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("mp4")
         
-        let session = try createExportSession(asset: asset, quality: quality)
-        try await setupExportSession(
-            session,
-            outputURL: outputURL,
-            startTime: startTime,
-            endTime: endTime,
-            asset: asset,
-            quality: quality,
-            date: date,
-            title: title
+        // Configure export session
+        exportSession.outputURL = trimmedURL
+        exportSession.outputFileType = .mp4
+        exportSession.timeRange = CMTimeRange(
+            start: CMTime(seconds: validatedStart, preferredTimescale: 600),
+            end: CMTime(seconds: validatedEnd, preferredTimescale: 600)
         )
         
-        return try await performExport(session, outputURL: outputURL)
+        // Add watermark
+        let videoComposition = try await createWatermarkedComposition(for: asset, date: date)
+        exportSession.videoComposition = videoComposition
+        
+        // Export the video
+        await exportSession.export()
+        
+        guard exportSession.status == .completed else {
+            throw exportSession.error ?? NSError(domain: "VideoProcessing", code: -1, userInfo: [NSLocalizedDescriptionKey: "Export failed"])
+        }
+        
+        return trimmedURL
+    }
+    
+    private func createWatermarkImage(date: Date, size: CGSize) throws -> UIImage {
+        print("🎨 Starting watermark creation with size: \(size)")
+        
+        // Ensure we're on the main thread for SwiftUI view creation
+        if !Thread.isMainThread {
+            print("🎨 Not on main thread, switching to main thread")
+            var result: UIImage?
+            var error: Error?
+            
+            DispatchQueue.main.sync {
+                do {
+                    result = try self.createWatermarkImage(date: date, size: size)
+                } catch let err {
+                    error = err
+                }
+            }
+            
+            if let error = error {
+                throw error
+            }
+            return result ?? UIImage()
+        }
+        
+        print("🎨 Creating renderer")
+        let renderer = UIGraphicsImageRenderer(size: size)
+        
+        print("🎨 Creating watermark image")
+        let image = renderer.image { context in
+            print("🎨 Setting up hosting controller")
+            // Create a hosting controller for the watermark view
+            let watermarkView = WatermarkView(
+                date: date,
+                title: nil  // We'll add the title when saving the dream
+            )
+            let hostingController = UIHostingController(rootView: watermarkView)
+            hostingController.view.backgroundColor = .clear
+            
+            print("🎨 Configuring watermark size and position")
+            // Size the hosting view
+            let watermarkSize = CGSize(width: size.width * 0.4, height: size.height * 0.15)
+            hostingController.view.frame = CGRect(
+                x: 20,
+                y: size.height - watermarkSize.height - 20,
+                width: watermarkSize.width,
+                height: watermarkSize.height
+            )
+            
+            print("🎨 Rendering watermark")
+            // Render the view
+            hostingController.view.drawHierarchy(
+                in: hostingController.view.bounds,
+                afterScreenUpdates: true
+            )
+        }
+        
+        print("🎨 Watermark creation completed")
+        return image
+    }
+    
+    private func createWatermarkedComposition(for asset: AVAsset, date: Date) async throws -> AVMutableVideoComposition {
+        print("🎨 Starting watermarked composition")
+        let composition = AVMutableVideoComposition(asset: asset) { [weak self] request in
+            guard let self = self else {
+                print("🎨 Self is nil, using source image")
+                request.finish(with: request.sourceImage, context: nil)
+                return
+            }
+            
+            print("🎨 Creating watermark for frame")
+            // Create the watermark image
+            let watermarkImage = try? self.createWatermarkImage(date: date, size: request.renderSize)
+            
+            print("🎨 Rendering frame with watermark")
+            // Render the original video frame
+            let image = request.sourceImage
+            
+            // If we have a watermark, composite it over the video frame
+            if let watermarkImage = watermarkImage,
+               let watermark = CIImage(image: watermarkImage)?.transformed(by: CGAffineTransform(
+                    translationX: 20,
+                    y: 20
+               )) {
+                print("🎨 Compositing watermark over frame")
+                let result = image.composited(over: watermark)
+                request.finish(with: result, context: nil)
+            } else {
+                print("🎨 No watermark available, using original frame")
+                request.finish(with: image, context: nil)
+            }
+        }
+        
+        print("🎨 Watermarked composition created")
+        return composition
     }
     
     private func createVideoComposition(for asset: AVAsset) async -> AVMutableVideoComposition {

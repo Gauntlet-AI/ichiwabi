@@ -5,6 +5,7 @@ import SwiftData
 struct DreamDetailsView: View {
     let videoURL: URL
     let userId: String
+    let initialTitle: String?
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(\.presentationMode) private var presentationMode
@@ -12,9 +13,10 @@ struct DreamDetailsView: View {
     @State private var showingError = false
     @State private var player: AVPlayer?
     
-    init(videoURL: URL, userId: String) {
+    init(videoURL: URL, userId: String, initialTitle: String? = nil) {
         self.videoURL = videoURL
         self.userId = userId
+        self.initialTitle = initialTitle
         
         // Initialize viewModel with a temporary DreamService
         let tempContext: ModelContext
@@ -36,7 +38,8 @@ struct DreamDetailsView: View {
         _viewModel = StateObject(wrappedValue: DreamDetailsViewModel(
             videoURL: videoURL,
             dreamService: DreamService(modelContext: tempContext, userId: userId),
-            userId: userId
+            userId: userId,
+            initialTitle: initialTitle
         ))
     }
     
@@ -116,7 +119,7 @@ struct DreamDetailsView: View {
                         }
                     }
                 }
-                .disabled(viewModel.isLoading || viewModel.title.isEmpty)
+                .disabled(viewModel.isLoading)
             }
         }
         .alert("Error", isPresented: $showingError) {

@@ -188,8 +188,11 @@ struct DreamRecorderView: View {
         Task {
             if videoCaptureService.isRecording {
                 if let url = try? await videoCaptureService.stopRecording() {
-                    recordedVideoURL = url
-                    showingTrimmer = true
+                    // Ensure we're on the main thread for UI updates
+                    await MainActor.run {
+                        recordedVideoURL = url
+                        showingTrimmer = true
+                    }
                 }
             } else {
                 try? await videoCaptureService.startRecording()
@@ -204,6 +207,11 @@ struct DreamRecorderView: View {
     }
     
     private func saveVideoToTemp(data: Data) async throws -> URL {
+        await MainActor.run {
+            // Ensure we're on the main thread when updating UI state
+            isSelectingFromLibrary = false
+        }
+        
         let tempDir = FileManager.default.temporaryDirectory
         let fileName = "\(UUID().uuidString).mov"
         let fileURL = tempDir.appendingPathComponent(fileName)

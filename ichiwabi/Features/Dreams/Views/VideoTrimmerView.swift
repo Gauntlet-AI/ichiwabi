@@ -23,6 +23,7 @@ class VideoPlayerViewModel: ObservableObject {
 
 struct VideoTrimmerView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     @StateObject private var playerViewModel = VideoPlayerViewModel()
     @StateObject private var processingService = VideoProcessingService()
     @State private var startTime: Double = 0
@@ -30,6 +31,8 @@ struct VideoTrimmerView: View {
     @State private var showingError = false
     @State private var dreamDate = Date()
     @State private var dreamTitle = ""
+    @State private var showingDreamDetails = false
+    @State private var processedVideoURL: URL?
     
     let videoURL: URL
     let userId: String
@@ -89,11 +92,11 @@ struct VideoTrimmerView: View {
                                     title: dreamTitle.isEmpty ? nil : dreamTitle
                                 )
                                 
-                                // Handle the processed video (e.g., save to library, upload, etc.)
-                                NotificationCenter.default.post(
-                                    name: NSNotification.Name("DismissVideoTrimmer"),
-                                    object: nil
-                                )
+                                // Navigate to dream details view with the processed video
+                                let dreamService = DreamService(modelContext: modelContext, userId: userId)
+                                // Present dream details view
+                                showingDreamDetails = true
+                                processedVideoURL = processedURL
                             } catch {
                                 processingService.error = error
                                 showingError = true
@@ -125,6 +128,17 @@ struct VideoTrimmerView: View {
             } message: {
                 if let error = processingService.error {
                     Text(error.localizedDescription)
+                }
+            }
+            .sheet(isPresented: $showingDreamDetails) {
+                if let processedURL = processedVideoURL {
+                    NavigationStack {
+                        DreamDetailsView(
+                            videoURL: processedURL,
+                            userId: userId,
+                            initialTitle: dreamTitle.isEmpty ? nil : dreamTitle
+                        )
+                    }
                 }
             }
             .overlay {

@@ -3,6 +3,7 @@ import SwiftData
 
 struct HomeView: View {
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var syncViewModel: SyncViewModel
     @Query private var users: [User]
     @State private var showError = false
     @StateObject private var viewModel = HomeViewModel()
@@ -19,6 +20,18 @@ struct HomeView: View {
     var body: some View {
         mainContent
             .navigationTitle("ichiwabi")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        Task {
+                            await syncViewModel.syncDreams()
+                        }
+                    } label: {
+                        Label("Sync", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .disabled(syncViewModel.isSyncing)
+                }
+            }
             .overlay(loadingOverlay)
             .onChange(of: viewModel.error, initial: false) { _, _ in
                 showError = viewModel.error != nil
@@ -70,7 +83,7 @@ struct HomeView: View {
     
     private var loadingOverlay: some View {
         Group {
-            if viewModel.isLoading {
+            if viewModel.isLoading || syncViewModel.isSyncing {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(.ultraThinMaterial)
