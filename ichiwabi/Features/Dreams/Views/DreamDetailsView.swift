@@ -54,15 +54,24 @@ struct DreamDetailsView: View {
             Section {
                 // Video preview
                 if let player = player {
-                    VideoPlayer(player: player)
-                        .aspectRatio(9/16, contentMode: .fit)
-                        .frame(maxHeight: 300)
-                        .onDisappear {
-                            player.pause()
-                        }
+                    HStack {
+                        Spacer()
+                        VideoPlayer(player: player)
+                            .aspectRatio(9/16, contentMode: .fit)
+                            .frame(maxHeight: 300)
+                            .onDisappear {
+                                player.pause()
+                            }
+                        Spacer()
+                    }
+                    .listRowInsets(EdgeInsets())
                 } else {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, maxHeight: 300)
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                            .frame(maxWidth: .infinity, maxHeight: 300)
+                        Spacer()
+                    }
                 }
             }
             

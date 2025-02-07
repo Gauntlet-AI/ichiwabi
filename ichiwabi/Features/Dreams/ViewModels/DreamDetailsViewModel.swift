@@ -43,51 +43,41 @@ class DreamDetailsViewModel: ObservableObject {
         isLoading = true
         defer { isLoading = false }
         
-        // First trim the video
+        print("💭 Starting video save process...")
+        
         let asset = AVAsset(url: videoURL)
-        let composition = AVMutableComposition()
+        print("💭 Original video URL: \(videoURL.path)")
         
-        guard let videoTrack = try await asset.loadTracks(withMediaType: .video).first,
-              let audioTrack = try await asset.loadTracks(withMediaType: .audio).first,
-              let compositionVideoTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid),
-              let compositionAudioTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else {
-            throw NSError(domain: "DreamDetailsViewModel", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create composition"])
+        // Verify original asset is playable
+        let isOriginalPlayable = try await asset.load(.isPlayable)
+        print("💭 Original asset playable: \(isOriginalPlayable)")
+        
+        // Get tracks info
+        let videoTracks = try await asset.loadTracks(withMediaType: .video)
+        let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+        print("💭 Original video tracks: \(videoTracks.count), audio tracks: \(audioTracks.count)")
+        
+        guard let videoTrack = videoTracks.first else {
+            throw NSError(domain: "DreamDetailsViewModel", code: -1, userInfo: [NSLocalizedDescriptionKey: "No video track found"])
         }
         
-        // Create time range for trimming
-        let startTime = CMTime(seconds: trimStartTime, preferredTimescale: 600)
-        let endTime = CMTime(seconds: trimEndTime > 0 ? trimEndTime : try await asset.load(.duration).seconds, preferredTimescale: 600)
-        let timeRange = CMTimeRange(start: startTime, end: endTime)
+        let naturalSize = try await videoTrack.load(.naturalSize)
+        let transform = try await videoTrack.load(.preferredTransform)
+        print("💭 Original video natural size: \(naturalSize), transform: \(transform)")
         
-        // Add trimmed video and audio to composition
-        try compositionVideoTrack.insertTimeRange(timeRange, of: videoTrack, at: .zero)
-        try compositionAudioTrack.insertTimeRange(timeRange, of: audioTrack, at: .zero)
+        // Since the video is already trimmed, we'll use it directly
+        let assetDuration = try await asset.load(.duration)
+        print("💭 Using pre-trimmed video with duration: \(assetDuration.seconds) seconds")
         
-        // Create temp URL for trimmed video
-        let tempDir = FileManager.default.temporaryDirectory
-        let trimmedURL = tempDir.appendingPathComponent("trimmed_dream_\(UUID().uuidString).mp4")
-        
-        // Export the trimmed video
-        let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality)!
-        export.outputURL = trimmedURL
-        export.outputFileType = .mp4
-        export.timeRange = timeRange
-        
-        await export.export()
-        
-        guard export.status == .completed else {
-            throw NSError(domain: "DreamDetailsViewModel", code: -2, userInfo: [NSLocalizedDescriptionKey: "Failed to export trimmed video"])
-        }
-        
-        // Upload the trimmed video to cloud storage
+        // Upload the video directly to cloud storage
         let (localURL, cloudURL) = try await videoUploadService.uploadVideo(
-            at: trimmedURL,
+            at: videoURL,
             userId: userId,
             date: dreamDate,
             title: title
         )
         
-        // Create dream with trim points (now set to 0 since video is already trimmed)
+        // Create dream with trim points set to 0 since video is already trimmed
         let dream = Dream(
             userId: userId,
             title: title,
@@ -97,15 +87,14 @@ class DreamDetailsViewModel: ObservableObject {
             transcript: transcript,
             dreamDate: dreamDate,
             localVideoPath: localURL.lastPathComponent,
-            trimStartTime: 0,  // Reset trim points since video is already trimmed
+            trimStartTime: 0,
             trimEndTime: 0
         )
         
         // Save dream to local storage and sync
         try await dreamService.saveDream(dream)
         
-        // Clean up temporary file
-        try? FileManager.default.removeItem(at: trimmedURL)
+        print("💭 Dream saved successfully")
         
         // Post notification to refresh home view
         NotificationCenter.default.post(name: NSNotification.Name("DismissVideoTrimmer"), object: nil)

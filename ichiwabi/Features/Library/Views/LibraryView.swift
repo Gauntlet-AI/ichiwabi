@@ -3,26 +3,25 @@ import SwiftData
 
 struct LibraryView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query private var dreams: [Dream]
-    let filterDate: Date
+    @State private var filterDate: Date
     @State private var dreamToEdit: Dream?
     @State private var dreamToPlay: Dream?
+    private let calendar = Calendar.current
     
-    init(filterDate: Date) {
-        self.filterDate = filterDate
-        let calendar = Calendar.current
+    @Query(sort: \Dream.dreamDate) private var allDreams: [Dream]
+    
+    private var dreams: [Dream] {
         let startOfDay = calendar.startOfDay(for: filterDate)
         guard let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) else {
-            _dreams = Query(filter: #Predicate<Dream> { _ in false })
-            return
+            return []
         }
-        
-        _dreams = Query(
-            filter: #Predicate<Dream> { dream in
-                dream.dreamDate >= startOfDay && dream.dreamDate < endOfDay
-            },
-            sort: \Dream.dreamDate
-        )
+        return allDreams.filter { dream in
+            dream.dreamDate >= startOfDay && dream.dreamDate < endOfDay
+        }
+    }
+    
+    init(filterDate: Date) {
+        _filterDate = State(initialValue: filterDate)
     }
     
     var body: some View {
@@ -59,8 +58,30 @@ struct LibraryView: View {
                     }
             }
         }
-        .navigationTitle(filterDate.formatted(date: .long, time: .omitted))
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                HStack {
+                    Button {
+                        moveToPreviousDay()
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .foregroundColor(.accentColor)
+                    }
+                    
+                    Text(filterDate.formatted(date: .long, time: .omitted))
+                        .font(.headline)
+                        .padding(.horizontal)
+                    
+                    Button {
+                        moveToNextDay()
+                    } label: {
+                        Image(systemName: "chevron.right")
+                            .foregroundColor(.accentColor)
+                    }
+                }
+            }
+        }
         .listStyle(.plain)
         .background(Color(.systemBackground))
         .overlay {
@@ -81,6 +102,18 @@ struct LibraryView: View {
             NavigationStack {
                 DreamPlaybackView(dream: dream, modelContext: modelContext)
             }
+        }
+    }
+    
+    private func moveToPreviousDay() {
+        if let newDate = calendar.date(byAdding: .day, value: -1, to: filterDate) {
+            filterDate = newDate
+        }
+    }
+    
+    private func moveToNextDay() {
+        if let newDate = calendar.date(byAdding: .day, value: 1, to: filterDate) {
+            filterDate = newDate
         }
     }
 }

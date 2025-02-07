@@ -152,12 +152,30 @@ final class VideoProcessingService: ObservableObject {
         isProcessing = true
         defer { isProcessing = false }
         
+        print("\n✂️ Starting video trim process")
+        print("✂️ Input video: \(videoURL)")
+        print("✂️ Trim range: \(startTime) to \(endTime) seconds")
+        
         let asset = AVAsset(url: videoURL)
         let duration = try await asset.load(.duration).seconds
+        
+        // Log input video details
+        let tracks = try await asset.loadTracks(withMediaType: .video)
+        if let videoTrack = tracks.first {
+            let size = try await videoTrack.load(.naturalSize)
+            let bitrate = try await videoTrack.load(.estimatedDataRate)
+            let framerate = try await videoTrack.load(.nominalFrameRate)
+            print("\n📊 Input Video Details:")
+            print("📊 - Dimensions: \(size)")
+            print("📊 - Bitrate: \(bitrate) bps")
+            print("📊 - Frame Rate: \(framerate) fps")
+            print("📊 - Duration: \(duration) seconds")
+        }
         
         // Validate time range
         let validatedStart = max(0, min(startTime, duration))
         let validatedEnd = max(validatedStart + 1, min(endTime, duration))
+        print("✂️ Validated trim range: \(validatedStart) to \(validatedEnd) seconds")
         
         // Create export session
         guard let exportSession = AVAssetExportSession(
@@ -167,10 +185,13 @@ final class VideoProcessingService: ObservableObject {
             throw NSError(domain: "VideoProcessing", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create export session"])
         }
         
+        print("\n🎥 Export Session Configuration:")
+        print("🎥 - Preset: \(exportSession.presetName)")
+        print("🎥 - Supported File Types: \(exportSession.supportedFileTypes)")
+        
         // Create temporary URL for trimmed video
         let trimmedURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("mp4")
+            .appendingPathComponent("trimmed_dream_\(UUID().uuidString).mp4")
         
         // Configure export session
         exportSession.outputURL = trimmedURL
@@ -179,13 +200,38 @@ final class VideoProcessingService: ObservableObject {
             start: CMTime(seconds: validatedStart, preferredTimescale: 600),
             end: CMTime(seconds: validatedEnd, preferredTimescale: 600)
         )
+        exportSession.shouldOptimizeForNetworkUse = false
         
         // Add watermark
         let videoComposition = try await createWatermarkedComposition(for: asset, date: date)
         exportSession.videoComposition = videoComposition
         
         // Export the video
+        print("\n🎥 Starting video export...")
         await exportSession.export()
+        
+        if let error = exportSession.error {
+            print("❌ Export failed with error: \(error)")
+            throw error
+        }
+        
+        print("✅ Export completed with status: \(exportSession.status.rawValue)")
+        
+        // Log output video details
+        if FileManager.default.fileExists(atPath: trimmedURL.path) {
+            let trimmedAsset = AVAsset(url: trimmedURL)
+            let trimmedTracks = try await trimmedAsset.loadTracks(withMediaType: .video)
+            if let trimmedTrack = trimmedTracks.first {
+                let size = try await trimmedTrack.load(.naturalSize)
+                let bitrate = try await trimmedTrack.load(.estimatedDataRate)
+                let framerate = try await trimmedTrack.load(.nominalFrameRate)
+                print("\n📊 Output Video Details:")
+                print("📊 - Dimensions: \(size)")
+                print("📊 - Bitrate: \(bitrate) bps")
+                print("📊 - Frame Rate: \(framerate) fps")
+                print("📊 - File Size: \(try FileManager.default.attributesOfItem(atPath: trimmedURL.path)[.size] ?? 0) bytes")
+            }
+        }
         
         guard exportSession.status == .completed else {
             throw exportSession.error ?? NSError(domain: "VideoProcessing", code: -1, userInfo: [NSLocalizedDescriptionKey: "Export failed"])
@@ -360,6 +406,7 @@ enum VideoProcessingError: LocalizedError {
     case exportSessionCreationFailed
     case exportFailed
     case exportCancelled
+    case invalidAsset
     case unknown
     
     var errorDescription: String? {
@@ -370,6 +417,8 @@ enum VideoProcessingError: LocalizedError {
             return "Failed to export video"
         case .exportCancelled:
             return "Video export was cancelled"
+        case .invalidAsset:
+            return "Video file is invalid or corrupted"
         case .unknown:
             return "An unknown error occurred"
         }

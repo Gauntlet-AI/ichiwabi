@@ -44,19 +44,33 @@ class CalendarViewModel: ObservableObject {
     
     func calculateStreak() async {
         let today = calendar.startOfDay(for: Date())
-        var currentDate = today
+        var currentDate = calendar.date(byAdding: .day, value: -1, to: today)! // Start from yesterday
         var streakCount = 0
         
+        // First check if there's a dream for today
+        let todayDreams = try? await dreamService.getDreamsForDateRange(
+            start: today,
+            end: today
+        )
+        
+        if let todayDreams = todayDreams, !todayDreams.isEmpty {
+            streakCount += 1
+        }
+        
+        // Then check previous days
         while true {
-            // Check if there are dreams for the current date
             do {
-                let dreams = try await dreamService.getDreamsForDateRange(start: currentDate, end: currentDate)
+                let dreams = try await dreamService.getDreamsForDateRange(
+                    start: currentDate,
+                    end: currentDate
+                )
+                
                 if dreams.isEmpty {
                     break
                 }
+                
                 streakCount += 1
                 
-                // Move to previous day
                 guard let previousDay = calendar.date(byAdding: .day, value: -1, to: currentDate) else {
                     break
                 }

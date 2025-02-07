@@ -18,12 +18,42 @@ final class VideoUploadService: ObservableObject {
         isUploading = true
         defer { isUploading = false }
         
-        print("🎥 Starting video upload for user: \(userId)")
+        print("\n🎥 Starting video upload process")
         print("🎥 Original video URL: \(localURL)")
         
-        // Process video with watermark
+        // Load and validate the asset
         let asset = AVAsset(url: localURL)
+        
+        // Wait for asset to be loadable
+        guard try await asset.load(.isPlayable) else {
+            print("❌ Asset is not playable")
+            throw VideoProcessingError.invalidAsset
+        }
+        
+        // Load video tracks
+        let tracks = try await asset.loadTracks(withMediaType: .video)
+        guard let videoTrack = tracks.first else {
+            print("❌ No video tracks found in asset")
+            throw VideoProcessingError.invalidAsset
+        }
+        
+        // Log video details
+        let size = try await videoTrack.load(.naturalSize)
+        let bitrate = try await videoTrack.load(.estimatedDataRate)
+        let framerate = try await videoTrack.load(.nominalFrameRate)
         let duration = try await asset.load(.duration).seconds
+        
+        print("\n📊 Original Video Details:")
+        print("📊 - Dimensions: \(size)")
+        print("📊 - Bitrate: \(bitrate) bps")
+        print("📊 - Frame Rate: \(framerate) fps")
+        print("📊 - Duration: \(duration) seconds")
+        
+        // Validate video duration
+        guard duration > 0 else {
+            print("❌ Video duration is 0")
+            throw VideoProcessingError.invalidAsset
+        }
         
         // Create temporary URL for processed video
         let tempDir = FileManager.default.temporaryDirectory
@@ -32,14 +62,23 @@ final class VideoUploadService: ObservableObject {
         // Create export session with watermark
         guard let exportSession = AVAssetExportSession(
             asset: asset,
-            presetName: AVAssetExportPresetHighestQuality
+            presetName: AVAssetExportPreset3840x2160 // Use 4K preset
         ) else {
             throw VideoProcessingError.exportSessionCreationFailed
         }
         
-        // Configure export
+        print("\n🎥 Export Session Configuration:")
+        print("🎥 - Preset: \(exportSession.presetName)")
+        print("🎥 - Supported File Types: \(exportSession.supportedFileTypes)")
+        
+        // Configure export with high quality settings
         exportSession.outputURL = processedURL
         exportSession.outputFileType = .mp4
+        exportSession.shouldOptimizeForNetworkUse = false
+        
+        // Set maximum bitrate (20 Mbps)
+        let targetBitrate = max(bitrate, 20_000_000) // At least 20 Mbps
+        exportSession.fileLengthLimit = Int64(Double(targetBitrate) * duration)
         
         // Add watermark
         let watermarkService = WatermarkService.shared
@@ -51,7 +90,31 @@ final class VideoUploadService: ObservableObject {
         exportSession.videoComposition = videoComposition
         
         // Export the video
+        print("\n🎥 Starting video export...")
         await exportSession.export()
+        
+        if let error = exportSession.error {
+            print("❌ Export failed with error: \(error)")
+            throw error
+        }
+        
+        print("✅ Export completed with status: \(exportSession.status.rawValue)")
+        
+        // Log processed video details
+        if FileManager.default.fileExists(atPath: processedURL.path) {
+            let processedAsset = AVAsset(url: processedURL)
+            let processedTracks = try await processedAsset.loadTracks(withMediaType: .video)
+            if let processedTrack = processedTracks.first {
+                let size = try await processedTrack.load(.naturalSize)
+                let bitrate = try await processedTrack.load(.estimatedDataRate)
+                let framerate = try await processedTrack.load(.nominalFrameRate)
+                print("\n📊 Processed Video Details:")
+                print("📊 - Dimensions: \(size)")
+                print("📊 - Bitrate: \(bitrate) bps")
+                print("📊 - Frame Rate: \(framerate) fps")
+                print("📊 - File Size: \(try FileManager.default.attributesOfItem(atPath: processedURL.path)[.size] ?? 0) bytes")
+            }
+        }
         
         guard exportSession.status == .completed else {
             throw exportSession.error ?? VideoProcessingError.exportFailed

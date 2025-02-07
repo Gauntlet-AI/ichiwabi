@@ -1,22 +1,38 @@
 import SwiftUI
+import SwiftData
 import AVKit
 
 class VideoPlayerViewModel: ObservableObject {
     @Published var player: AVPlayer
     @Published var duration: Double = 0
+    @Published var isPreviewMode = false
     private var timeObserver: Any?
     
-    init() {
+    init(isPreviewMode: Bool = false) {
         self.player = AVPlayer()
-    }
-    
-    deinit {
-        if let observer = timeObserver {
-            player.removeTimeObserver(observer)
+        self.isPreviewMode = isPreviewMode
+        if isPreviewMode {
+            self.duration = 60 // Mock 60 seconds for preview
         }
     }
     
+    deinit {
+        cleanup()
+    }
+    
+    func cleanup() {
+        if let observer = timeObserver {
+            player.pause()
+            player.removeTimeObserver(observer)
+            timeObserver = nil
+        }
+        player.replaceCurrentItem(with: nil)
+    }
+    
     func setVideo(url: URL) {
+        // Clean up any existing observers before setting new video
+        cleanup()
+        
         let playerItem = AVPlayerItem(url: url)
         self.player.replaceCurrentItem(with: playerItem)
         
@@ -34,6 +50,7 @@ class VideoPlayerViewModel: ObservableObject {
         // Remove existing observer
         if let observer = timeObserver {
             player.removeTimeObserver(observer)
+            timeObserver = nil
         }
         
         // Add new time observer for looping
@@ -109,6 +126,7 @@ struct VideoTrimmerView: View {
                         dismiss()
                     } label: {
                         Text("Cancel")
+                            .foregroundColor(.black)
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
@@ -126,6 +144,8 @@ struct VideoTrimmerView: View {
                                 
                                 // Navigate to dream details view with the processed video
                                 let dreamService = DreamService(modelContext: modelContext, userId: userId)
+                                // Clean up the current video player
+                                playerViewModel.cleanup()
                                 // Present dream details view
                                 showingDreamDetails = true
                                 processedVideoURL = processedURL
@@ -136,6 +156,7 @@ struct VideoTrimmerView: View {
                         }
                     } label: {
                         Text("Save")
+                            .foregroundColor(.black)
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
@@ -149,8 +170,7 @@ struct VideoTrimmerView: View {
                 playerViewModel.player.play()
             }
             .onDisappear {
-                playerViewModel.player.pause()
-                playerViewModel.player.replaceCurrentItem(with: nil)
+                playerViewModel.cleanup()
             }
             .task {
                 await loadVideoDuration()
@@ -206,19 +226,32 @@ struct VideoTrimmerView: View {
 
 private struct VideoPlayerView: View {
     @ObservedObject var viewModel: VideoPlayerViewModel
-    
-    init(viewModel: VideoPlayerViewModel) {
-        self.viewModel = viewModel
-    }
+    @State private var previewColor = Color.blue
     
     var body: some View {
-        VideoPlayer(player: viewModel.player)
-            .aspectRatio(9/16, contentMode: .fit)
-            .cornerRadius(12)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
-            )
+        if viewModel.isPreviewMode {
+            // Preview mode shows an animated color rectangle
+            RoundedRectangle(cornerRadius: 12)
+                .fill(previewColor)
+                .aspectRatio(9/16, contentMode: .fit)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                )
+                .onAppear {
+                    withAnimation(.easeInOut(duration: 2).repeatForever()) {
+                        previewColor = Color.purple
+                    }
+                }
+        } else {
+            VideoPlayer(player: viewModel.player)
+                .aspectRatio(9/16, contentMode: .fit)
+                .cornerRadius(12)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                )
+        }
     }
 }
 
@@ -288,5 +321,30 @@ private struct TrimHandleView: View {
                     .stroke(Color.accentColor, lineWidth: 2)
             )
             .position(x: position, y: thumbnailHeight / 2)
+    }
+}
+
+// MARK: - Preview Provider
+#Preview {
+    NavigationStack {
+        VideoTrimmerView(
+            videoURL: URL(string: "https://example.com/mock.mp4")!,
+            userId: "preview_user_id"
+        )
+        .modelContainer(for: [User.self, Dream.self], inMemory: true)
+        .onAppear {
+            // Use mock player for preview
+            let mockPlayer = VideoPlayerViewModel(isPreviewMode: true)
+            mockPlayer.duration = 60 // Mock 60 seconds duration
+        }
+    }
+}
+
+// MARK: - Mock Data Extension
+extension VideoPlayerViewModel {
+    static var mock: VideoPlayerViewModel {
+        let model = VideoPlayerViewModel()
+        model.duration = 60 // 60 seconds
+        return model
     }
 } 

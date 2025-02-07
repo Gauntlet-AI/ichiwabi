@@ -96,8 +96,8 @@ struct CalendarView: View {
                 }
             }
             .task {
-                // Load initial data
-                await viewModel.loadDreamsForMonth(currentMonth)
+                // Load initial data and calculate streak
+                await viewModel.refreshData()
             }
         }
     }

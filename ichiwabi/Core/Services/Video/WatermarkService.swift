@@ -176,24 +176,8 @@ final class WatermarkService {
         
         // Create the compositing filter
         print("🎬 Creating compositing filter")
-        guard let compositingFilter = CIFilter(name: "CISourceOverCompositing"),
-              let roundedRectFilter = CIFilter(name: "CIRoundedRectangleGenerator") else {
+        guard let compositingFilter = CIFilter(name: "CISourceOverCompositing") else {
             print("❌ Failed to create filters")
-            throw WatermarkError.filterCreationFailed
-        }
-        
-        // Configure rounded rectangle mask
-        let extent = CGRect(x: 0, y: 0, width: size.width, height: size.height)
-        roundedRectFilter.setValue(CIVector(cgRect: extent), forKey: "inputExtent")
-        roundedRectFilter.setValue(24, forKey: "inputRadius") // Match corner radius from DreamPlaybackView
-        
-        // Create mask image
-        guard let maskImage = roundedRectFilter.outputImage else {
-            throw WatermarkError.filterCreationFailed
-        }
-        
-        // Create masking filter
-        guard let maskFilter = CIFilter(name: "CIMaskedVariableBlur") else {
             throw WatermarkError.filterCreationFailed
         }
         
@@ -211,20 +195,11 @@ final class WatermarkService {
                 print("🎬 Processing first frame:")
             }
             
-            // Get source image and apply rounded corners
+            // Get source image and ensure it's properly bounded
             let sourceImage = request.sourceImage.clampedToExtent()
             
-            // Apply mask
-            maskFilter.setValue(sourceImage, forKey: kCIInputImageKey)
-            maskFilter.setValue(maskImage, forKey: "inputMask")
-            
-            guard let maskedSource = maskFilter.outputImage else {
-                request.finish(with: sourceImage, context: nil)
-                return
-            }
-            
             // Apply watermark
-            compositingFilter.setValue(maskedSource, forKey: kCIInputBackgroundImageKey)
+            compositingFilter.setValue(sourceImage, forKey: kCIInputBackgroundImageKey)
             
             if let output = compositingFilter.outputImage?.cropped(to: sourceImage.extent) {
                 if frameCount == 1 {
@@ -238,8 +213,12 @@ final class WatermarkService {
             }
         }
         
-        composition.renderSize = size
-        print("🎬 Composition created with render size: \(size)")
+        // Set high quality rendering
+        composition.renderSize = finalSize
+        composition.renderScale = 1.0 // Full resolution
+        composition.frameDuration = CMTime(value: 1, timescale: 30) // 30 fps
+        
+        print("🎬 Composition created with render size: \(finalSize)")
         
         return composition
     }

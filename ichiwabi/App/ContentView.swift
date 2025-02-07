@@ -89,6 +89,24 @@ struct MainAppView: View {
                 Label("Home", systemImage: "house")
             }
             
+            // Calendar Tab
+            NavigationStack {
+                if let userId = currentUser?.id {
+                    CalendarView.create(userId: userId, modelContext: modelContext)
+                }
+            }
+            .tabItem {
+                Label("Calendar", systemImage: "calendar")
+            }
+            
+            // Library Tab
+            NavigationStack {
+                LibraryView(filterDate: Date())
+            }
+            .tabItem {
+                Label("Library", systemImage: "books.vertical")
+            }
+            
             // Profile Tab
             NavigationStack {
                 SettingsView()
