@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import FirebaseAuth
 
 struct HomeView: View {
     @Environment(\.modelContext) private var modelContext
@@ -8,6 +9,9 @@ struct HomeView: View {
     @State private var showError = false
     @StateObject private var viewModel: HomeViewModel
     let userId: String
+    @State private var showSignOutAlert = false
+    @State private var error: HomeViewError?
+    @State private var selectedDream: Dream?
     
     private var currentUser: User? {
         users.first
@@ -24,28 +28,42 @@ struct HomeView: View {
             .navigationTitle("yorutabi")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        Task {
-                            await syncViewModel.syncDreams()
+                    HStack(spacing: 16) {
+                        Button {
+                            Task {
+                                await syncViewModel.syncDreams()
+                            }
+                        } label: {
+                            Label("Sync", systemImage: "arrow.triangle.2.circlepath")
                         }
-                    } label: {
-                        Label("Sync", systemImage: "arrow.triangle.2.circlepath")
+                        .disabled(syncViewModel.isSyncing)
+                        
+                        Button(role: .destructive) {
+                            showSignOutAlert = true
+                        } label: {
+                            Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                        }
                     }
-                    .disabled(syncViewModel.isSyncing)
                 }
             }
             .overlay(loadingOverlay)
             .onChange(of: viewModel.error, initial: false) { _, _ in
                 showError = viewModel.error != nil
             }
-            .alert("Error", isPresented: $showError) {
-                Button("OK") {
-                    viewModel.error = nil
+            .alert("Error", isPresented: $showError, presenting: error) { _ in
+                Button("OK", role: .cancel) { }
+            } message: { error in
+                Text(error.localizedDescription)
+            }
+            .alert("Sign Out", isPresented: $showSignOutAlert) {
+                Button("Cancel", role: .cancel) { }
+                Button("Sign Out", role: .destructive) {
+                    Task {
+                        await resetAppState()
+                    }
                 }
             } message: {
-                if let error = viewModel.error {
-                    Text(error.localizedDescription)
-                }
+                Text("Are you sure you want to sign out? This will clear all local data.")
             }
             .refreshable {
                 await viewModel.loadData()
@@ -55,6 +73,11 @@ struct HomeView: View {
                     NavigationStack {
                         DreamRecorderView(userId: user.id)
                     }
+                }
+            }
+            .sheet(item: $selectedDream) { dream in
+                NavigationStack {
+                    DreamPlaybackView(dream: dream, modelContext: modelContext)
                 }
             }
             .onAppear {
@@ -182,11 +205,48 @@ struct HomeView: View {
             } else {
                 LazyVStack(spacing: 12) {
                     ForEach(viewModel.recentDreams) { dream in
-                        DreamCell(dream: dream)
-                            .background(Color.secondary.opacity(0.1))
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                        Button {
+                            selectedDream = dream
+                        } label: {
+                            DreamCell(dream: dream)
+                                .background(Color.secondary.opacity(0.1))
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
                     }
                 }
+            }
+        }
+    }
+    
+    private func resetAppState() async {
+        do {
+            // Sign out from Firebase
+            try await Auth.auth().signOut()
+            
+            // Delete all users from modelContext
+            for user in users {
+                modelContext.delete(user)
+            }
+            try modelContext.save()
+            
+            // Clear UserDefaults
+            if let bundleID = Bundle.main.bundleIdentifier {
+                UserDefaults.standard.removePersistentDomain(forName: bundleID)
+            }
+        } catch {
+            self.error = .signOutFailed(error.localizedDescription)
+            showError = true
+        }
+    }
+    
+    // Add HomeViewError enum
+    enum HomeViewError: LocalizedError {
+        case signOutFailed(String)
+        
+        var errorDescription: String? {
+            switch self {
+            case .signOutFailed(let message):
+                return "Failed to sign out: \(message)"
             }
         }
     }

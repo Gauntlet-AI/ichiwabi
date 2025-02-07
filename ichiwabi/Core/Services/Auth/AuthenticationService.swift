@@ -87,80 +87,67 @@ final class AuthenticationService {
                 print("🔐 Auth state changed. User: \(user?.uid ?? "nil")")
                 print("🔐 Current auth state: \(self.authState)")
                 
-                if let firebaseUser = user {
-                    print("🔐 User signed in: \(firebaseUser.uid)")
+                self.handleAuthStateChange(user)
+            }
+        }
+    }
+    
+    private func handleAuthStateChange(_ user: FirebaseAuth.User?) {
+        print("\n🔐 ==================== AUTH STATE CHANGE ====================")
+        print("🔐 User: \(user?.uid ?? "nil")")
+        
+        Task { @MainActor in
+            do {
+                if let user = user {
+                    print("🔐 User is signed in")
+                    print("🔐 Email: \(user.email ?? "none")")
+                    print("🔐 Display name: \(user.displayName ?? "none")")
+                    
+                    // Sync user data
+                    print("🔐 Starting user sync")
+                    try await syncService.syncCurrentUser()
+                    print("🔐 User sync completed")
+                    
+                    // Check local user data
+                    let descriptor = FetchDescriptor<User>()
                     do {
-                        print("🔐 Starting user sync...")
-                        try await self.syncService.syncCurrentUser()
-                        print("🔐 User sync completed")
+                        let allUsers = try context.fetch(descriptor)
+                        print("🔐 Found \(allUsers.count) users in SwiftData")
+                        print("🔐 User IDs: \(allUsers.map { $0.id }.joined(separator: ", "))")
                         
-                        // After sync, fetch the user from SwiftData
-                        print("🔐 Attempting to fetch user after sync")
-                        // First ensure any pending changes are saved
-                        if self.context.hasChanges {
-                            print("🔐 Saving pending changes in context")
-                            try? self.context.save()
-                        }
-                        
-                        // Force a new fetch descriptor to ensure we're not using cached results
-                        print("🔐 Creating fetch descriptor")
-                        var descriptor = FetchDescriptor<User>(
-                            sortBy: [SortDescriptor(\User.id)]
-                        )
-                        descriptor.fetchLimit = Int.max  // Set to maximum to fetch all users
-                        
-                        do {
-                            // Try multiple fetches if needed
-                            var attempts = 0
-                            var allUsers: [User] = []
-                            
-                            while allUsers.isEmpty && attempts < 3 {
-                                attempts += 1
-                                print("🔐 Fetch attempt \(attempts)")
-                                allUsers = try self.context.fetch(descriptor)
-                                print("🔐 Fetch returned \(allUsers.count) users")
-                                
-                                if allUsers.isEmpty && attempts < 3 {
-                                    print("🔐 No users found, waiting before retry...")
-                                    // Wait a bit before trying again
-                                    try await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
-                                }
-                            }
-                            
-                            print("🔐 Fetched \(allUsers.count) users from SwiftData after \(attempts) attempts")
-                            print("🔐 Looking for user with ID: \(firebaseUser.uid)")
-                            
-                            if let user = allUsers.first(where: { user in
-                                print("🔐 Comparing user.id: \(user.id) with firebaseUser.uid: \(firebaseUser.uid)")
-                                return user.id == firebaseUser.uid
-                            }) {
-                                print("🔐 Found matching user in SwiftData")
-                                self.currentUser = user
-                                print("🔐 Set currentUser to: \(user.id)")
-                                self.authState = .signedIn
-                                print("🔐 Set authState to: signedIn")
-                            } else {
-                                print("⚠️ User is signed in but no matching user data found")
-                                print("⚠️ Available user IDs: \(allUsers.map { $0.id }.joined(separator: ", "))")
-                                print("⚠️ Setting authState to signedOut")
-                                self.authState = .signedOut
-                            }
-                        } catch {
-                            print("🔐 Error fetching users from SwiftData: \(error)")
-                            print("🔐 Error details: \(error.localizedDescription)")
+                        if let matchingUser = allUsers.first(where: { $0.id == user.uid }) {
+                            print("🔐 Found matching user in SwiftData")
+                            print("🔐 Username: \(matchingUser.username)")
+                            print("🔐 Display name: \(matchingUser.displayName)")
+                            print("🔐 Profile complete: \(matchingUser.isProfileComplete)")
+                            print("🔐 Terms accepted: \(matchingUser.hasAcceptedTerms)")
+                            self.currentUser = matchingUser
+                            print("🔐 Set currentUser to: \(matchingUser.id)")
+                            self.authState = .signedIn
+                            print("🔐 Set authState to: signedIn")
+                        } else {
+                            print("⚠️ User is signed in but no matching user data found")
+                            print("⚠️ Available user IDs: \(allUsers.map { $0.id }.joined(separator: ", "))")
+                            print("⚠️ Setting authState to signedOut")
                             self.authState = .signedOut
                         }
                     } catch {
-                        print("Error syncing user: \(error)")
-                        print("Error details: \(error.localizedDescription)")
+                        print("🔐 Error fetching users from SwiftData: \(error)")
+                        print("🔐 Error details: \(error.localizedDescription)")
                         self.authState = .signedOut
                     }
                 } else {
-                    print("🔐 User signed out")
-                    self.authState = .signedOut
+                    print("🔐 No user signed in")
                     self.currentUser = nil
+                    self.authState = .signedOut
                 }
+            } catch {
+                print("❌ Error during auth state change: \(error)")
+                print("❌ Error details: \(error.localizedDescription)")
+                self.currentUser = nil
+                self.authState = .signedOut
             }
+            print("🔐 ==================== AUTH STATE CHANGE END ====================\n")
         }
     }
     

@@ -430,6 +430,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ichiwabi/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "ｙｏｒｕｔａｂｉ";
 				INFOPLIST_KEY_LSRequiresIPhoneOS = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "We need access to your camera to record video responses to daily prompts.";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "ichiwabi uses Face ID to securely sign you into your account.";
@@ -479,6 +480,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ichiwabi/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "ｙｏｒｕｔａｂｉ";
 				INFOPLIST_KEY_LSRequiresIPhoneOS = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "We need access to your camera to record video responses to daily prompts.";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "ichiwabi uses Face ID to securely sign you into your account.";

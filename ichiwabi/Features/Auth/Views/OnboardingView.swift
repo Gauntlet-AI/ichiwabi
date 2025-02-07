@@ -68,10 +68,12 @@ struct OnboardingView: View {
                             .textFieldStyle(RoundedBorderTextFieldStyle())
                             .autocapitalization(.none)
                             .textContentType(.username)
+                            .disabled(currentUser?.username != nil)
                         
                         TextField("Display Name", text: $displayName)
                             .textFieldStyle(RoundedBorderTextFieldStyle())
                             .textContentType(.name)
+                            .disabled(currentUser?.displayName != nil)
                         
                         Button("Next") {
                             saveBasicInfo()
@@ -97,6 +99,19 @@ struct OnboardingView: View {
                                 .scaledToFill()
                                 .frame(width: 100, height: 100)
                                 .clipShape(Circle())
+                        } else if let avatarURL = currentUser?.avatarURL {
+                            AsyncImage(url: avatarURL) { image in
+                                image
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 100, height: 100)
+                                    .clipShape(Circle())
+                            } placeholder: {
+                                Image(systemName: "person.circle.fill")
+                                    .resizable()
+                                    .frame(width: 100, height: 100)
+                                    .foregroundColor(.gray)
+                            }
                         } else {
                             Image(systemName: "person.circle.fill")
                                 .resizable()
@@ -118,6 +133,11 @@ struct OnboardingView: View {
                         
                         TextField("Catchphrase (optional)", text: $catchphrase)
                             .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .onAppear {
+                                if let existingCatchphrase = currentUser?.catchphrase {
+                                    catchphrase = existingCatchphrase
+                                }
+                            }
                             .onChange(of: catchphrase) { oldValue, newValue in
                                 if newValue.count > 50 {
                                     catchphrase = String(newValue.prefix(50))
@@ -165,6 +185,11 @@ struct OnboardingView: View {
                         
                         Toggle("I accept the Terms of Service", isOn: $hasAcceptedTerms)
                             .padding()
+                            .onAppear {
+                                if let existingTerms = currentUser?.hasAcceptedTerms {
+                                    hasAcceptedTerms = existingTerms
+                                }
+                            }
                         
                         Button("Complete Setup") {
                             completeOnboarding()
@@ -194,11 +219,16 @@ struct OnboardingView: View {
                         .cornerRadius(8)
                 }
             }
+            .onAppear {
+                userService = UserSyncService(modelContext: modelContext)
+                // If we have a complete profile, dismiss the onboarding
+                if let user = currentUser,
+                   user.isProfileComplete && user.hasAcceptedTerms {
+                    dismiss()
+                }
+            }
         }
         .interactiveDismissDisabled()
-        .onAppear {
-            userService = UserSyncService(modelContext: modelContext)
-        }
         .onChange(of: selectedItem) { oldValue, newValue in
             Task {
                 if let data = try? await newValue?.loadTransferable(type: Data.self) {
@@ -220,8 +250,13 @@ struct OnboardingView: View {
                     throw AuthError.notAuthenticated
                 }
                 
-                currentUser.username = username
-                currentUser.displayName = displayName
+                // Only update if values have changed
+                if currentUser.username != username {
+                    currentUser.username = username
+                }
+                if currentUser.displayName != displayName {
+                    currentUser.displayName = displayName
+                }
                 currentUser.updatedAt = Date()
                 
                 try await service.sync(currentUser)
@@ -257,13 +292,15 @@ struct OnboardingView: View {
                     )
                     
                     // Only update the URL if we successfully got one back
-                    if downloadURL.absoluteString.isEmpty {
-                        throw AuthError.unknown
+                    if !downloadURL.absoluteString.isEmpty {
+                        currentUser.avatarURL = downloadURL
                     }
-                    currentUser.avatarURL = downloadURL
                 }
                 
-                currentUser.catchphrase = catchphrase
+                // Only update if catchphrase has changed
+                if currentUser.catchphrase != catchphrase {
+                    currentUser.catchphrase = catchphrase
+                }
                 currentUser.updatedAt = Date()
                 
                 try await service.sync(currentUser)

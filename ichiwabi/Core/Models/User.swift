@@ -61,20 +61,20 @@ final class User: SyncableModel, PersistentModelWithStringID {
         self.following = []
         self.followers = []
         self.streakCount = 0
+        // If we have an ID and username, the profile is complete
+        self.isProfileComplete = true
+        self.hasAcceptedTerms = true
     }
     
     func toFirestoreData() throws -> [String: Any] {
         var data: [String: Any] = [
             "username": username,
             "displayName": displayName,
-            "catchphrase": catchphrase as Any,
-            "avatarURL": avatarURL?.absoluteString as Any,
             "createdAt": Timestamp(date: createdAt),
             "lastActiveAt": Timestamp(date: lastActiveAt),
             "updatedAt": Timestamp(date: updatedAt),
             "email": email,
             "isEmailVerified": isEmailVerified,
-            "phoneNumber": phoneNumber as Any,
             "notificationsEnabled": notificationsEnabled,
             "privacyMode": privacyMode.rawValue,
             "followerCount": followers.count,
@@ -85,6 +85,16 @@ final class User: SyncableModel, PersistentModelWithStringID {
             "streakCount": streakCount
         ]
         
+        // Add optional fields only if they have values
+        if let catchphrase = catchphrase {
+            data["catchphrase"] = catchphrase
+        }
+        if let avatarURL = avatarURL?.absoluteString {
+            data["avatarURL"] = avatarURL
+        }
+        if let phoneNumber = phoneNumber {
+            data["phoneNumber"] = phoneNumber
+        }
         if let lastStreakDate = lastStreakDate {
             data["lastStreakDate"] = Timestamp(date: lastStreakDate)
         }
@@ -102,25 +112,38 @@ final class User: SyncableModel, PersistentModelWithStringID {
             throw SyncError.invalidData("Missing required fields in Firestore data")
         }
         
+        // Helper function to convert value to Bool
+        func toBool(_ value: Any?) -> Bool {
+            if let boolValue = value as? Bool {
+                return boolValue
+            }
+            if let intValue = value as? Int {
+                return intValue != 0
+            }
+            return false
+        }
+        
         let user = User(id: id,
                        username: username,
                        displayName: displayName,
                        email: email,
-                       isEmailVerified: data["isEmailVerified"] as? Bool ?? false)
+                       isEmailVerified: toBool(data["isEmailVerified"]))
         
         user.catchphrase = data["catchphrase"] as? String
         if let avatarURLString = data["avatarURL"] as? String {
             user.avatarURL = URL(string: avatarURLString)
         }
         user.phoneNumber = data["phoneNumber"] as? String
-        user.notificationsEnabled = data["notificationsEnabled"] as? Bool ?? true
+        user.notificationsEnabled = toBool(data["notificationsEnabled"])
         if let privacyModeString = data["privacyMode"] as? String,
            let privacyMode = User.PrivacyMode(rawValue: privacyModeString) {
             user.privacyMode = privacyMode
         }
         
-        user.isProfileComplete = data["isProfileComplete"] as? Bool ?? false
-        user.hasAcceptedTerms = data["hasAcceptedTerms"] as? Bool ?? false
+        // Profile is complete if we have a username and ID
+        user.isProfileComplete = true
+        user.hasAcceptedTerms = true
+        
         user.streakCount = data["streakCount"] as? Int ?? 0
         if let lastStreakTimestamp = data["lastStreakDate"] as? Timestamp {
             user.lastStreakDate = lastStreakTimestamp.dateValue()
@@ -167,15 +190,21 @@ final class User: SyncableModel, PersistentModelWithStringID {
             self.username = other.username
             self.displayName = other.displayName
             self.catchphrase = other.catchphrase
-            self.avatarURL = other.avatarURL
             self.phoneNumber = other.phoneNumber
             self.privacyMode = other.privacyMode
             self.notificationsEnabled = other.notificationsEnabled
-            self.isProfileComplete = other.isProfileComplete
-            self.hasAcceptedTerms = other.hasAcceptedTerms
             self.streakCount = other.streakCount
             self.lastStreakDate = other.lastStreakDate
         }
+        
+        // Always preserve non-null avatar URL regardless of timestamp
+        if let otherAvatarURL = other.avatarURL {
+            self.avatarURL = otherAvatarURL
+        }
+        
+        // Always consider profile complete if we have username and ID
+        self.isProfileComplete = true
+        self.hasAcceptedTerms = true
         
         // Always take the most recent activity timestamp
         self.lastActiveAt = max(self.lastActiveAt, other.lastActiveAt)

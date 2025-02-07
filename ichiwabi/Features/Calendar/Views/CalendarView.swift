@@ -13,39 +13,8 @@ struct CalendarView: View {
     }
     
     static func create(userId: String, modelContext: ModelContext) -> CalendarView {
-        // Create a schema with all required models
-        let schema = Schema([
-            Dream.self,
-            User.self,
-            Tag.self,
-            Prompt.self,
-            VideoResponse.self,
-            Comment.self,
-            Report.self,
-            Notification.self
-        ])
-        
-        // Try to create a container with the schema
-        let container: ModelContainer
-        do {
-            let config = ModelConfiguration(schema: schema)
-            container = try ModelContainer(for: schema, configurations: config)
-        } catch {
-            print("Failed to create ModelContainer: \(error)")
-            // Fallback to an in-memory container
-            let fallbackConfig = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
-            do {
-                container = try ModelContainer(for: schema, configurations: fallbackConfig)
-            } catch {
-                print("Critical error: Failed to create even in-memory container: \(error)")
-                // Use the provided ModelContext as a last resort
-                return CalendarView(viewModel: CalendarViewModel(
-                    dreamService: DreamService(modelContext: modelContext, userId: userId)
-                ))
-            }
-        }
-        
-        let dreamService = DreamService(modelContext: ModelContext(container), userId: userId)
+        // Use the provided ModelContext directly instead of creating a new one
+        let dreamService = DreamService(modelContext: modelContext, userId: userId)
         return CalendarView(viewModel: CalendarViewModel(dreamService: dreamService))
     }
     
@@ -106,8 +75,11 @@ struct CalendarView: View {
                 .padding(.top)
             }
             .onChange(of: currentMonth) { oldValue, newValue in
-                Task {
-                    await viewModel.loadDreamsForMonth(newValue)
+                // Only load if month actually changed
+                if !calendar.isDate(oldValue, equalTo: newValue, toGranularity: .month) {
+                    Task {
+                        await viewModel.loadDreamsForMonth(newValue)
+                    }
                 }
             }
             .overlay {
@@ -123,10 +95,9 @@ struct CalendarView: View {
                     LibraryView(filterDate: date)
                 }
             }
-            .onAppear {
-                Task {
-                    await viewModel.refreshData()
-                }
+            .task {
+                // Load initial data
+                await viewModel.loadDreamsForMonth(currentMonth)
             }
         }
     }
@@ -162,6 +133,7 @@ private struct MonthView: View {
                 ForEach(calendar.veryShortWeekdaySymbols, id: \.self) { symbol in
                     Text(symbol)
                         .font(.caption)
+                        .foregroundStyle(.secondary)
                         .frame(width: daySize)
                 }
             }
@@ -170,7 +142,7 @@ private struct MonthView: View {
             let days = calendar.daysInMonth(month)
             let firstWeekday = calendar.firstWeekday(of: month)
             
-            LazyVGrid(columns: Array(repeating: GridItem(.fixed(daySize)), count: daysInWeek), spacing: 0) {
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(daySize)), count: daysInWeek), spacing: 4) {
                 ForEach(0..<firstWeekday-1, id: \.self) { _ in
                     Color.clear
                         .frame(width: daySize, height: daySize)
@@ -184,7 +156,9 @@ private struct MonthView: View {
                     )
                     .frame(width: daySize, height: daySize)
                     .onTapGesture {
-                        selectedDate = date
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            selectedDate = date
+                        }
                         viewModel.showLibraryForDate(date)
                     }
                 }
@@ -201,21 +175,24 @@ private struct DayCell: View {
     let dreamCount: Int
     
     var body: some View {
-        VStack {
+        VStack(spacing: 4) {
             Text("\(Calendar.current.component(.day, from: date))")
                 .font(.system(.body, design: .rounded))
+                .foregroundStyle(Theme.textPrimary)
             
+            // Show dot instead of number
             if dreamCount > 0 {
-                Text("\(dreamCount)")
-                    .font(.system(.caption2, design: .rounded))
-                    .padding(2)
-                    .frame(minWidth: 16)
-                    .background(Color.blue.opacity(0.2))
-                    .cornerRadius(8)
+                Circle()
+                    .fill(Color.pink.opacity(0.8))
+                    .frame(width: 6, height: 6)
+            } else {
+                // Maintain spacing even when no dot
+                Color.clear
+                    .frame(width: 6, height: 6)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(isSelected ? Color.blue.opacity(0.1) : Color.clear)
+        .background(isSelected ? Color.blue.opacity(0.2) : Color.clear)
         .cornerRadius(8)
     }
 }
@@ -258,5 +235,70 @@ private extension Calendar {
         }
         
         return dates
+    }
+}
+
+// MARK: - Preview
+#Preview {
+    do {
+        // Create a test container with necessary models
+        let container = try ModelContainer(
+            for: User.self,
+            Dream.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let context = ModelContext(container)
+        
+        // Create test user
+        let user = User(
+            id: "preview_user",
+            username: "dreamwalker",
+            displayName: "Dream Walker",
+            email: "dream@example.com"
+        )
+        context.insert(user)
+        
+        // Create sample dreams across different dates
+        let calendar = Calendar.current
+        let today = Date()
+        
+        // Sample dates: today and several past days
+        let dates: [(Date, Int)] = [
+            (today, 2), // 2 dreams today
+            (calendar.date(byAdding: .day, value: -1, to: today)!, 1), // 1 dream yesterday
+            (calendar.date(byAdding: .day, value: -2, to: today)!, 1), // 1 dream 2 days ago
+            (calendar.date(byAdding: .day, value: -4, to: today)!, 3), // 3 dreams 4 days ago
+            (calendar.date(byAdding: .day, value: -7, to: today)!, 1), // 1 dream a week ago
+            (calendar.date(byAdding: .day, value: -10, to: today)!, 2), // 2 dreams 10 days ago
+        ]
+        
+        // Create dreams for each date
+        for (date, count) in dates {
+            for i in 0..<count {
+                let dream = Dream(
+                    userId: user.id,
+                    title: "Dream \(i + 1) on \(date.formatted(date: .abbreviated, time: .omitted))",
+                    description: "A fascinating dream about \(["flying", "exploring", "adventure", "mystery", "discovery"].randomElement()!)",
+                    date: date,
+                    videoURL: URL(string: "https://example.com/video\(UUID().uuidString).mp4")!,
+                    transcript: "This is a sample transcript for dream \(i + 1)",
+                    dreamDate: date
+                )
+                context.insert(dream)
+            }
+        }
+        
+        return NavigationStack {
+            CalendarView.create(userId: user.id, modelContext: context)
+                .modelContainer(container)
+                .preferredColorScheme(.dark)
+                .background(Theme.darkNavy)
+                .environment(\.colorScheme, .dark)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.darkNavy)
+    } catch {
+        return Text("Failed to create preview")
+            .foregroundColor(Theme.textPrimary)
     }
 } 

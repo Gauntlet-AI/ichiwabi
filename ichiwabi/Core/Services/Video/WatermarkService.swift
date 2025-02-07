@@ -159,15 +159,31 @@ final class WatermarkService {
         watermarkCIImage = watermarkCIImage.clampedToExtent()
         print("🎬 - Clamped CIImage extent: \(watermarkCIImage.extent)")
         
-        // Create the filter once
+        // Create the compositing filter
         print("🎬 Creating compositing filter")
-        guard let filter = CIFilter(name: "CISourceOverCompositing") else {
-            print("❌ Failed to create CISourceOverCompositing filter")
+        guard let compositingFilter = CIFilter(name: "CISourceOverCompositing"),
+              let roundedRectFilter = CIFilter(name: "CIRoundedRectangleGenerator") else {
+            print("❌ Failed to create filters")
             throw WatermarkError.filterCreationFailed
         }
         
-        // Set the watermark as input
-        filter.setValue(watermarkCIImage, forKey: kCIInputImageKey)
+        // Configure rounded rectangle mask
+        roundedRectFilter.setValue(size.width, forKey: "inputWidth")
+        roundedRectFilter.setValue(size.height, forKey: "inputHeight")
+        roundedRectFilter.setValue(24, forKey: "inputRadius") // Match corner radius from DreamPlaybackView
+        
+        // Create mask image
+        guard let maskImage = roundedRectFilter.outputImage else {
+            throw WatermarkError.filterCreationFailed
+        }
+        
+        // Create masking filter
+        guard let maskFilter = CIFilter(name: "CIMaskedVariableBlur") else {
+            throw WatermarkError.filterCreationFailed
+        }
+        
+        // Set the watermark as input for compositing
+        compositingFilter.setValue(watermarkCIImage, forKey: kCIInputImageKey)
         print("✅ Set watermark as input image")
         
         var frameCount = 0
@@ -180,15 +196,22 @@ final class WatermarkService {
                 print("🎬 Processing first frame:")
             }
             
-            // Ensure source image is properly bounded
+            // Get source image and apply rounded corners
             let sourceImage = request.sourceImage.clampedToExtent()
-            if frameCount == 1 {
-                print("🎬 - Source image extent: \(sourceImage.extent)")
+            
+            // Apply mask
+            maskFilter.setValue(sourceImage, forKey: kCIInputImageKey)
+            maskFilter.setValue(maskImage, forKey: "inputMask")
+            
+            guard let maskedSource = maskFilter.outputImage else {
+                request.finish(with: sourceImage, context: nil)
+                return
             }
             
-            filter.setValue(sourceImage, forKey: kCIInputBackgroundImageKey)
+            // Apply watermark
+            compositingFilter.setValue(maskedSource, forKey: kCIInputBackgroundImageKey)
             
-            if let output = filter.outputImage?.cropped(to: sourceImage.extent) {
+            if let output = compositingFilter.outputImage?.cropped(to: sourceImage.extent) {
                 if frameCount == 1 {
                     print("✅ First frame composited successfully")
                     print("🎬 - Output image extent: \(output.extent)")

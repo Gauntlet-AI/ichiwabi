@@ -156,11 +156,15 @@ class BaseSyncService<T> where T: PersistentModel & Observable & SyncableModel &
         if let existingModel = existingModels.first(where: { $0.persistentModelID == model.persistentModelID }) {
             print("💫 Update: Found existing model")
             do {
+                // Create a mutable copy with sync properties
                 var modelData = try model.toFirestoreData()
                 modelData["syncStatus"] = status.rawValue
                 modelData["lastSyncedAt"] = Timestamp(date: Date())
-                let updatedModel = try T.fromFirestoreData(modelData, id: existingModel.persistentModelID)
-                context.insert(updatedModel)
+                let modelWithSync = try T.fromFirestoreData(modelData, id: model.persistentModelID)
+                
+                // Then merge changes into existing model
+                print("💫 Update: Merging changes into existing model")
+                let updatedModel = try existingModel.mergeChanges(from: modelWithSync)
                 try context.save()
                 print("💫 Update: Successfully updated existing model")
                 return updatedModel
@@ -188,6 +192,15 @@ class BaseSyncService<T> where T: PersistentModel & Observable & SyncableModel &
     
     private func updateFirestore(_ model: T) async throws {
         try model.validate()
+        
+        // Add user-specific logging if the model is a User
+        if let user = model as? User {
+            print("\n🔄 Syncing user to Firestore:")
+            print("👤 Username: \(user.username)")
+            print("🖼️ Avatar URL: \(user.avatarURL?.absoluteString ?? "none")")
+            print("✍️ Profile complete: \(user.isProfileComplete)")
+        }
+        
         let docRef = db.collection(T.collectionPath).document(model.persistentModelID)
         try await docRef.setData(model.toFirestoreData(), merge: true)
     }

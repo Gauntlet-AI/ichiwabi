@@ -145,41 +145,32 @@ final class UserSyncService: BaseSyncService<User> {
                 print("🆔 User ID: \(localUser.id)")
                 print("👤 Username: \(localUser.username)")
                 print("🔄 Sync status: \(localUser.syncStatus)")
-                print("✍️ Profile complete: \(localUser.isProfileComplete)")
+                print("🖼️ Local avatar URL: \(localUser.avatarURL?.absoluteString ?? "none")")
 
-                do {
-                    let docRef = Firestore.firestore().collection(User.collectionPath).document(currentUser.uid)
-                    print("\n🔥 Checking Firestore document...")
-                    let document = try await docRef.getDocument()
+                let docRef = Firestore.firestore().collection(User.collectionPath).document(currentUser.uid)
+                print("\n🔥 Checking Firestore document...")
+                let document = try await docRef.getDocument()
 
-                    if document.exists, let data = document.data() {
-                        print("✅ Found Firestore data, updating local user")
-                        let firestoreUser = try User.fromFirestoreData(data, id: currentUser.uid)
+                if document.exists, let data = document.data() {
+                    print("✅ Found Firestore data")
+                    print("📄 Firestore data: \(data)")
+                    let firestoreUser = try User.fromFirestoreData(data, id: currentUser.uid)
+                    print("🖼️ Firestore avatar URL: \(firestoreUser.avatarURL?.absoluteString ?? "none")")
 
-                        // Preserve local profile completion state if it's true
-                        if localUser.isProfileComplete {
-                            firestoreUser.isProfileComplete = true
-                        }
-
-                        // Store the merged changes
-                        let updatedUser = try localUser.mergeChanges(from: firestoreUser)
-                        try await sync(updatedUser)
-                        print("✅ Local user updated from Firestore")
-                        print("✍️ Final profile complete state: \(localUser.isProfileComplete)")
-                    } else {
-                        print("\n📤 No Firestore data, syncing local user to Firestore")
-                        try await sync(localUser)
-                        print("✅ Local user synced to Firestore")
-                    }
-                } catch {
-                    print("\n❌ Error during Firestore sync: \(error)")
-                    throw error
+                    // Merge changes from Firestore
+                    print("\n🔄 Merging changes...")
+                    let updatedUser = try localUser.mergeChanges(from: firestoreUser)
+                    print("🖼️ Merged avatar URL: \(updatedUser.avatarURL?.absoluteString ?? "none")")
+                    try await sync(updatedUser)
+                } else {
+                    print("\n📤 No Firestore data found, using local data")
+                    try await sync(localUser)
                 }
             } else {
-                print("\n🆕 Creating new user...")
+                print("\n🆕 No local user found, creating new user...")
                 let newUser = User(
                     id: currentUser.uid,
-                    username: generateDefaultUsername(from: currentUser),
+                    username: currentUser.displayName?.lowercased().replacingOccurrences(of: " ", with: "") ?? currentUser.email?.components(separatedBy: "@").first ?? currentUser.uid,
                     displayName: currentUser.displayName ?? "New User",
                     email: currentUser.email ?? "",
                     isEmailVerified: currentUser.isEmailVerified
@@ -192,43 +183,8 @@ final class UserSyncService: BaseSyncService<User> {
                 print("📧 Email: \(newUser.email)")
 
                 context.insert(newUser)
-
-                print("\n💾 Saving to SwiftData...")
-                do {
-                    try context.save()
-                    print("✅ Save successful")
-                } catch {
-                    print("❌ Save failed: \(error)")
-                    print("❌ Error details: \(error.localizedDescription)")
-                    throw error
-                }
-
-                print("\n🔍 Verifying save...")
-                let verifyDescriptor = FetchDescriptor<User>(
-                    sortBy: [SortDescriptor(\User.id)]
-                )
-
-                do {
-                    let allUsers = try context.fetch(verifyDescriptor)
-                    print("📊 Found \(allUsers.count) total users")
-                    print("🆔 User IDs: \(allUsers.map { $0.id }.joined(separator: ", "))")
-
-                    if let savedUser = allUsers.first(where: { $0.id == currentUser.uid }) {
-                        print("✅ User verified in SwiftData: \(savedUser.id)")
-                        print("\n🔥 Syncing to Firestore...")
-                        try await sync(savedUser)
-                        print("✅ Sync complete")
-                    } else {
-                        print("❌ User not found in SwiftData after save")
-                        print("📊 Context state:")
-                        print("💾 Has changes: \(context.hasChanges)")
-                        throw SyncError.invalidData("Failed to save user to SwiftData - user not found after save")
-                    }
-                } catch {
-                    print("\n❌ Verification failed: \(error)")
-                    print("❌ Error details: \(error.localizedDescription)")
-                    throw error
-                }
+                try context.save()
+                try await sync(newUser)
             }
         } catch {
             print("\n❌ Sync error: \(error)")

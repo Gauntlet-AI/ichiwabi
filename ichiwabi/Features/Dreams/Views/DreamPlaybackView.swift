@@ -151,7 +151,13 @@ struct DreamPlaybackView: View {
             defer { isLoading = false }
             
             do {
+                print("\n📼 ==================== DREAM PLAYBACK ====================")
                 print("📼 Setting up video player for dream: \(dream.dreamId)")
+                print("📼 Dream details:")
+                print("📼 - Title: \(dream.title)")
+                print("📼 - User ID: \(dream.userId)")
+                print("📼 - Local path: \(dream.localVideoPath ?? "none")")
+                print("📼 - Video URL: \(dream.videoURL)")
                 
                 // First try to load from local storage
                 if let localPath = dream.localVideoPath,
@@ -160,7 +166,15 @@ struct DreamPlaybackView: View {
                     let fullPath = "dreams/\(dream.userId)/\(localPath)"
                     let localURL = documentsPath.appendingPathComponent(fullPath)
                     print("📼 Checking for cached video at: \(localURL.path)")
-                    print("📼 Full path structure: \(fullPath)")
+                    print("📼 Full path structure:")
+                    print("📼 - Documents path: \(documentsPath.path)")
+                    print("📼 - Relative path: \(fullPath)")
+                    print("📼 - Final URL: \(localURL.path)")
+                    
+                    // Check if parent directory exists
+                    let parentDir = localURL.deletingLastPathComponent()
+                    let dirExists = FileManager.default.fileExists(atPath: parentDir.path)
+                    print("📼 Parent directory exists: \(dirExists)")
                     
                     if FileManager.default.fileExists(atPath: localURL.path) {
                         print("📼 Found cached video, setting up player")
@@ -168,6 +182,8 @@ struct DreamPlaybackView: View {
                             player = AVPlayer(url: localURL)
                             player?.play()
                         }
+                        print("📼 Player setup complete")
+                        print("📼 ==================== END ====================\n")
                         return
                     } else {
                         print("⚠️ Local path exists but file not found: \(localURL.path)")
@@ -192,6 +208,13 @@ struct DreamPlaybackView: View {
                     let fullPath = "dreams/\(dream.userId)/\(localPath)"
                     let localURL = documentsPath.appendingPathComponent(fullPath)
                     print("📼 Full path after download: \(fullPath)")
+                    print("📼 Checking downloaded file:")
+                    print("📼 - Local URL: \(localURL.path)")
+                    
+                    // Check parent directory
+                    let parentDir = localURL.deletingLastPathComponent()
+                    let dirExists = FileManager.default.fileExists(atPath: parentDir.path)
+                    print("📼 Parent directory exists: \(dirExists)")
                     
                     // Double check the file exists after download
                     if FileManager.default.fileExists(atPath: localURL.path) {
@@ -200,6 +223,8 @@ struct DreamPlaybackView: View {
                             player = AVPlayer(url: localURL)
                             player?.play()
                         }
+                        print("📼 Player setup complete")
+                        print("📼 ==================== END ====================\n")
                     } else {
                         print("⚠️ Downloaded file not found at: \(localURL.path)")
                         throw NSError(domain: "DreamPlayback", code: -3, userInfo: [NSLocalizedDescriptionKey: "Downloaded video file not found"])
@@ -209,8 +234,16 @@ struct DreamPlaybackView: View {
                     throw NSError(domain: "DreamPlayback", code: -2, userInfo: [NSLocalizedDescriptionKey: "Video download succeeded but local path is missing"])
                 }
             } catch {
+                print("\n❌ ==================== ERROR ====================")
                 print("❌ Failed to load video: \(error)")
-                print("❌ Error details: \(error)")
+                if let nsError = error as? NSError {
+                    print("❌ Error details:")
+                    print("❌ - Domain: \(nsError.domain)")
+                    print("❌ - Code: \(nsError.code)")
+                    print("❌ - Description: \(nsError.localizedDescription)")
+                    print("❌ - User Info: \(nsError.userInfo)")
+                }
+                print("❌ ==================== END ====================\n")
                 await MainActor.run {
                     errorMessage = "Failed to load video: \(error.localizedDescription)"
                 }
