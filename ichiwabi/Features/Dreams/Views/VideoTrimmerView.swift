@@ -4,9 +4,16 @@ import AVKit
 class VideoPlayerViewModel: ObservableObject {
     @Published var player: AVPlayer
     @Published var duration: Double = 0
+    private var timeObserver: Any?
     
     init() {
         self.player = AVPlayer()
+    }
+    
+    deinit {
+        if let observer = timeObserver {
+            player.removeTimeObserver(observer)
+        }
     }
     
     func setVideo(url: URL) {
@@ -18,6 +25,29 @@ class VideoPlayerViewModel: ObservableObject {
         if duration != .invalid {
             self.duration = duration.seconds
         }
+    }
+    
+    func updateTrimPoints(startTime: Double, endTime: Double) {
+        // Seek to start time
+        player.seek(to: CMTime(seconds: startTime, preferredTimescale: 600))
+        
+        // Remove existing observer
+        if let observer = timeObserver {
+            player.removeTimeObserver(observer)
+        }
+        
+        // Add new time observer for looping
+        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main) { [weak self, weak player] time in
+            guard let player = player else { return }
+            let currentTime = time.seconds
+            
+            if currentTime >= endTime {
+                player.seek(to: CMTime(seconds: startTime, preferredTimescale: 600))
+                player.play()
+            }
+        }
+        
+        player.play()
     }
 }
 
@@ -66,6 +96,8 @@ struct VideoTrimmerView: View {
                     endTime: $endTime
                 )
                 .padding(.horizontal)
+                .onChange(of: startTime) { _ in updateVideoPreview() }
+                .onChange(of: endTime) { _ in updateVideoPreview() }
                 
                 // Duration indicator
                 Text(String(format: "Duration: %.1f seconds", endTime - startTime))
@@ -136,7 +168,9 @@ struct VideoTrimmerView: View {
                         DreamDetailsView(
                             videoURL: processedURL,
                             userId: userId,
-                            initialTitle: dreamTitle.isEmpty ? nil : dreamTitle
+                            initialTitle: dreamTitle.isEmpty ? nil : dreamTitle,
+                            trimStartTime: startTime,
+                            trimEndTime: endTime
                         )
                     }
                 }
@@ -161,6 +195,10 @@ struct VideoTrimmerView: View {
         } catch {
             print("Error loading video duration: \(error)")
         }
+    }
+    
+    private func updateVideoPreview() {
+        playerViewModel.updateTrimPoints(startTime: startTime, endTime: endTime)
     }
 }
 

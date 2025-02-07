@@ -103,9 +103,20 @@ final class HomeViewModel: ObservableObject {
         }
         
         let today = calendar.startOfDay(for: Date())
-        var currentDate = today
+        var currentDate = calendar.date(byAdding: .day, value: -1, to: today)! // Start from yesterday
         var streakCount = 0
         
+        // First check if there's a dream for today
+        let todayDreams = try? await dreamService.getDreamsForDateRange(
+            start: today,
+            end: today
+        )
+        
+        if let todayDreams = todayDreams, !todayDreams.isEmpty {
+            streakCount += 1
+        }
+        
+        // Then check previous days
         while true {
             do {
                 let dreams = try await dreamService.getDreamsForDateRange(

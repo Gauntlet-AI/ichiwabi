@@ -126,18 +126,33 @@ final class WatermarkService {
     ) async throws -> AVMutableVideoComposition {
         print("\n🎬 Starting watermark application")
         
-        // Get video size
-        guard let track = try? await videoAsset.loadTracks(withMediaType: .video).first,
-              let size = try? await track.load(.naturalSize) else {
-            print("❌ Failed to get video track or size")
+        // Wait for tracks to load
+        let tracks = try await videoAsset.loadTracks(withMediaType: .video)
+        guard !tracks.isEmpty else {
+            print("❌ No video tracks found in asset")
             throw WatermarkError.videoTrackNotFound
         }
         
-        print("🎬 Video details:")
-        print("🎬 - Size: \(size)")
+        let track = tracks[0]
+        print("✅ Found video track")
         
-        // Create watermark image
-        guard let watermarkImage = createWatermarkImage(date: date, title: title, size: size) else {
+        // Load track properties
+        let size = try await track.load(.naturalSize)
+        let preferredTransform = try await track.load(.preferredTransform)
+        
+        // Apply preferred transform to get correct orientation
+        let transformedSize = size.applying(preferredTransform)
+        let finalSize = CGSize(
+            width: abs(transformedSize.width),
+            height: abs(transformedSize.height)
+        )
+        
+        print("🎬 Video details:")
+        print("🎬 - Original size: \(size)")
+        print("🎬 - Transformed size: \(finalSize)")
+        
+        // Create watermark image using the final size
+        guard let watermarkImage = createWatermarkImage(date: date, title: title, size: finalSize) else {
             print("❌ Failed to create watermark image")
             throw WatermarkError.watermarkCreationFailed
         }
@@ -168,8 +183,8 @@ final class WatermarkService {
         }
         
         // Configure rounded rectangle mask
-        roundedRectFilter.setValue(size.width, forKey: "inputWidth")
-        roundedRectFilter.setValue(size.height, forKey: "inputHeight")
+        let extent = CGRect(x: 0, y: 0, width: size.width, height: size.height)
+        roundedRectFilter.setValue(CIVector(cgRect: extent), forKey: "inputExtent")
         roundedRectFilter.setValue(24, forKey: "inputRadius") // Match corner radius from DreamPlaybackView
         
         // Create mask image

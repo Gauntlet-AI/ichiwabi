@@ -8,6 +8,8 @@ class DreamDetailsViewModel: ObservableObject {
     private let userId: String
     private let videoURL: URL
     private let videoUploadService = VideoUploadService()
+    private let trimStartTime: Double
+    private let trimEndTime: Double
     
     @Published var title = ""
     @Published var dreamDate = Date()
@@ -17,10 +19,12 @@ class DreamDetailsViewModel: ObservableObject {
     @Published var error: Error?
     @Published var uploadProgress: Double = 0
     
-    init(videoURL: URL, dreamService: DreamService, userId: String, initialTitle: String? = nil) {
+    init(videoURL: URL, dreamService: DreamService, userId: String, initialTitle: String? = nil, trimStartTime: Double = 0, trimEndTime: Double = 0) {
         self.videoURL = videoURL
         self.dreamService = dreamService
         self.userId = userId
+        self.trimStartTime = trimStartTime
+        self.trimEndTime = trimEndTime
         if let initialTitle = initialTitle {
             self.title = initialTitle
         }
@@ -39,48 +43,72 @@ class DreamDetailsViewModel: ObservableObject {
         isLoading = true
         defer { isLoading = false }
         
-        print("💭 Starting dream save process...")
+        // First trim the video
+        let asset = AVAsset(url: videoURL)
+        let composition = AVMutableComposition()
         
-        // First upload the video to get both local and cloud URLs
-        print("💭 Uploading video...")
+        guard let videoTrack = try await asset.loadTracks(withMediaType: .video).first,
+              let audioTrack = try await asset.loadTracks(withMediaType: .audio).first,
+              let compositionVideoTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid),
+              let compositionAudioTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            throw NSError(domain: "DreamDetailsViewModel", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create composition"])
+        }
+        
+        // Create time range for trimming
+        let startTime = CMTime(seconds: trimStartTime, preferredTimescale: 600)
+        let endTime = CMTime(seconds: trimEndTime > 0 ? trimEndTime : try await asset.load(.duration).seconds, preferredTimescale: 600)
+        let timeRange = CMTimeRange(start: startTime, end: endTime)
+        
+        // Add trimmed video and audio to composition
+        try compositionVideoTrack.insertTimeRange(timeRange, of: videoTrack, at: .zero)
+        try compositionAudioTrack.insertTimeRange(timeRange, of: audioTrack, at: .zero)
+        
+        // Create temp URL for trimmed video
+        let tempDir = FileManager.default.temporaryDirectory
+        let trimmedURL = tempDir.appendingPathComponent("trimmed_dream_\(UUID().uuidString).mp4")
+        
+        // Export the trimmed video
+        let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality)!
+        export.outputURL = trimmedURL
+        export.outputFileType = .mp4
+        export.timeRange = timeRange
+        
+        await export.export()
+        
+        guard export.status == .completed else {
+            throw NSError(domain: "DreamDetailsViewModel", code: -2, userInfo: [NSLocalizedDescriptionKey: "Failed to export trimmed video"])
+        }
+        
+        // Upload the trimmed video to cloud storage
         let (localURL, cloudURL) = try await videoUploadService.uploadVideo(
-            at: videoURL,
+            at: trimmedURL,
             userId: userId,
             date: dreamDate,
             title: title
         )
-        print("💭 Video uploaded successfully")
-        print("💭 Local URL: \(localURL)")
-        print("💭 Cloud URL: \(cloudURL)")
         
-        // Get the relative path for local storage
-        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let relativePath = localURL.path(percentEncoded: false)
-            .replacingOccurrences(of: documentsPath.path(percentEncoded: false), with: "")
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        
-        // Create and save the dream
+        // Create dream with trim points (now set to 0 since video is already trimmed)
         let dream = Dream(
-            id: UUID(),
             userId: userId,
             title: title,
             description: transcript,
             date: Date(),
             videoURL: URL(string: cloudURL)!,
-            createdAt: Date(),
-            updatedAt: Date(),
             transcript: transcript,
-            tags: [],
-            category: nil,
-            isSynced: false,
-            lastSyncedAt: nil,
             dreamDate: dreamDate,
-            localVideoPath: relativePath
+            localVideoPath: localURL.lastPathComponent,
+            trimStartTime: 0,  // Reset trim points since video is already trimmed
+            trimEndTime: 0
         )
         
-        print("💭 Saving dream to database...")
+        // Save dream to local storage and sync
         try await dreamService.saveDream(dream)
-        print("💭 Dream saved successfully")
+        
+        // Clean up temporary file
+        try? FileManager.default.removeItem(at: trimmedURL)
+        
+        // Post notification to refresh home view
+        NotificationCenter.default.post(name: NSNotification.Name("DismissVideoTrimmer"), object: nil)
     }
     
     private func transcribeVideo() async {

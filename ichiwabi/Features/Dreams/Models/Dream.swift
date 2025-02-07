@@ -19,6 +19,8 @@ final class Dream {
     var isSynced: Bool
     var lastSyncedAt: Date?
     var dreamDate: Date
+    var trimStartTime: Double = 0
+    var trimEndTime: Double = 0
     
     init(
         id: UUID = UUID(),
@@ -35,7 +37,9 @@ final class Dream {
         isSynced: Bool = false,
         lastSyncedAt: Date? = nil,
         dreamDate: Date? = nil,
-        localVideoPath: String? = nil
+        localVideoPath: String? = nil,
+        trimStartTime: Double = 0,
+        trimEndTime: Double = 0
     ) {
         self.dreamId = id
         self.userId = userId
@@ -52,6 +56,8 @@ final class Dream {
         self.isSynced = isSynced
         self.lastSyncedAt = lastSyncedAt
         self.dreamDate = dreamDate ?? date
+        self.trimStartTime = trimStartTime
+        self.trimEndTime = trimEndTime
     }
 }
 
@@ -69,7 +75,9 @@ extension Dream {
             "updatedAt": Timestamp(date: updatedAt),
             "tags": tags,
             "isSynced": isSynced,
-            "dreamDate": Timestamp(date: dreamDate)
+            "dreamDate": Timestamp(date: dreamDate),
+            "trimStartTime": trimStartTime,
+            "trimEndTime": trimEndTime
         ]
         
         // Add optional fields
@@ -115,7 +123,9 @@ extension Dream {
             category: data["category"] as? String,
             isSynced: data["isSynced"] as? Bool ?? false,
             lastSyncedAt: (data["lastSyncedAt"] as? Timestamp)?.dateValue(),
-            dreamDate: dreamDateTimestamp.dateValue()
+            dreamDate: dreamDateTimestamp.dateValue(),
+            trimStartTime: data["trimStartTime"] as? Double ?? 0,
+            trimEndTime: data["trimEndTime"] as? Double ?? 0
         )
     }
 } 

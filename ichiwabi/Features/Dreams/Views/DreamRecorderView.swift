@@ -218,4 +218,11 @@ struct DreamRecorderView: View {
         try data.write(to: fileURL)
         return fileURL
     }
+}
+
+#Preview {
+    NavigationStack {
+        DreamRecorderView(userId: "preview_user")
+            .preferredColorScheme(.dark)
+    }
 } 

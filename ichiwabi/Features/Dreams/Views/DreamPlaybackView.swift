@@ -178,8 +178,39 @@ struct DreamPlaybackView: View {
                     
                     if FileManager.default.fileExists(atPath: localURL.path) {
                         print("📼 Found cached video, setting up player")
+                        
+                        // Create asset and get duration
+                        let asset = AVAsset(url: localURL)
+                        let duration = try await asset.load(.duration).seconds
+                        print("📼 Video duration: \(duration) seconds")
+                        
+                        // Create player item with the asset
+                        let playerItem = AVPlayerItem(asset: asset)
+                        
                         await MainActor.run {
-                            player = AVPlayer(url: localURL)
+                            player = AVPlayer(playerItem: playerItem)
+                            
+                            // Set initial position to trim start
+                            if dream.trimStartTime > 0 {
+                                player?.seek(to: CMTime(seconds: dream.trimStartTime, preferredTimescale: 600))
+                            }
+                            
+                            // Set up playback observation for trim points
+                            player?.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main) { [weak player] time in
+                                let currentTime = time.seconds
+                                
+                                // If we've reached the trim end point or the video end
+                                if dream.trimEndTime > 0 && currentTime >= dream.trimEndTime {
+                                    // Loop back to trim start
+                                    player?.seek(to: CMTime(seconds: dream.trimStartTime, preferredTimescale: 600))
+                                    player?.play()
+                                } else if dream.trimEndTime == 0 && currentTime >= duration {
+                                    // If no trim end point, loop at video end
+                                    player?.seek(to: .zero)
+                                    player?.play()
+                                }
+                            }
+                            
                             player?.play()
                         }
                         print("📼 Player setup complete")
@@ -219,8 +250,39 @@ struct DreamPlaybackView: View {
                     // Double check the file exists after download
                     if FileManager.default.fileExists(atPath: localURL.path) {
                         print("📼 Setting up player with downloaded video at: \(localURL.path)")
+                        
+                        // Create asset and get duration
+                        let asset = AVAsset(url: localURL)
+                        let duration = try await asset.load(.duration).seconds
+                        print("📼 Video duration: \(duration) seconds")
+                        
+                        // Create player item with the asset
+                        let playerItem = AVPlayerItem(asset: asset)
+                        
                         await MainActor.run {
-                            player = AVPlayer(url: localURL)
+                            player = AVPlayer(playerItem: playerItem)
+                            
+                            // Set initial position to trim start
+                            if dream.trimStartTime > 0 {
+                                player?.seek(to: CMTime(seconds: dream.trimStartTime, preferredTimescale: 600))
+                            }
+                            
+                            // Set up playback observation for trim points
+                            player?.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main) { [weak player] time in
+                                let currentTime = time.seconds
+                                
+                                // If we've reached the trim end point or the video end
+                                if dream.trimEndTime > 0 && currentTime >= dream.trimEndTime {
+                                    // Loop back to trim start
+                                    player?.seek(to: CMTime(seconds: dream.trimStartTime, preferredTimescale: 600))
+                                    player?.play()
+                                } else if dream.trimEndTime == 0 && currentTime >= duration {
+                                    // If no trim end point, loop at video end
+                                    player?.seek(to: .zero)
+                                    player?.play()
+                                }
+                            }
+                            
                             player?.play()
                         }
                         print("📼 Player setup complete")

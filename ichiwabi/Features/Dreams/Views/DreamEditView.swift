@@ -83,6 +83,9 @@ struct DreamEditView: View {
                             await saveDream()
                         }
                     }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.white)
+                    .foregroundStyle(Theme.darkNavy)
                     .disabled(isLoading)
                 }
             }
@@ -116,5 +119,33 @@ struct DreamEditView: View {
         } catch {
             self.error = error
         }
+    }
+}
+
+#Preview {
+    do {
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: Dream.self, configurations: config)
+        let context = ModelContext(container)
+        
+        // Create a sample dream
+        let dream = Dream(
+            userId: "preview_user",
+            title: "Flying Dream",
+            description: "I was flying over mountains...",
+            date: Date(),
+            videoURL: URL(string: "https://example.com/video.mp4")!,
+            transcript: "I was soaring through the clouds, feeling the wind beneath my wings...",
+            dreamDate: Date()
+        )
+        
+        return NavigationStack {
+            DreamEditView(dream: dream)
+                .modelContainer(container)
+                .preferredColorScheme(.dark)
+                .background(Theme.darkNavy)
+        }
+    } catch {
+        return Text("Failed to create preview: \(error.localizedDescription)")
     }
 } 

@@ -6,6 +6,8 @@ struct DreamDetailsView: View {
     let videoURL: URL
     let userId: String
     let initialTitle: String?
+    let trimStartTime: Double
+    let trimEndTime: Double
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(\.presentationMode) private var presentationMode
@@ -13,10 +15,12 @@ struct DreamDetailsView: View {
     @State private var showingError = false
     @State private var player: AVPlayer?
     
-    init(videoURL: URL, userId: String, initialTitle: String? = nil) {
+    init(videoURL: URL, userId: String, initialTitle: String? = nil, trimStartTime: Double = 0, trimEndTime: Double = 0) {
         self.videoURL = videoURL
         self.userId = userId
         self.initialTitle = initialTitle
+        self.trimStartTime = trimStartTime
+        self.trimEndTime = trimEndTime
         
         // Initialize viewModel with a temporary DreamService
         let tempContext: ModelContext
@@ -39,7 +43,9 @@ struct DreamDetailsView: View {
             videoURL: videoURL,
             dreamService: DreamService(modelContext: tempContext, userId: userId),
             userId: userId,
-            initialTitle: initialTitle
+            initialTitle: initialTitle,
+            trimStartTime: trimStartTime,
+            trimEndTime: trimEndTime
         ))
     }
     
