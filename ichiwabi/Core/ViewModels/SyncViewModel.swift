@@ -63,6 +63,7 @@ class SyncViewModel: ObservableObject {
         lastSyncError = nil
         
         do {
+            print("\n🧹 Starting storage cleanup for user: \(userId)")
             try await syncService.cleanupUnusedVideos()
         } catch {
             lastSyncError = error.localizedDescription

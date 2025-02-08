@@ -37,9 +37,13 @@ class VideoPlayerViewModel: ObservableObject {
         self.player.replaceCurrentItem(with: playerItem)
         
         // Get video duration
-        let duration = playerItem.asset.duration
-        if duration != .invalid {
-            self.duration = duration.seconds
+        Task {
+            let duration = try? await playerItem.asset.load(.duration)
+            if let duration = duration, duration != .invalid {
+                await MainActor.run {
+                    self.duration = duration.seconds
+                }
+            }
         }
     }
     
@@ -54,7 +58,7 @@ class VideoPlayerViewModel: ObservableObject {
         }
         
         // Add new time observer for looping
-        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main) { [weak self, weak player] time in
+        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main) { [weak player] time in
             guard let player = player else { return }
             let currentTime = time.seconds
             
@@ -113,8 +117,12 @@ struct VideoTrimmerView: View {
                     endTime: $endTime
                 )
                 .padding(.horizontal)
-                .onChange(of: startTime) { _ in updateVideoPreview() }
-                .onChange(of: endTime) { _ in updateVideoPreview() }
+                .onChange(of: startTime) { _, newValue in
+                    updateVideoPreview()
+                }
+                .onChange(of: endTime) { _, newValue in
+                    updateVideoPreview()
+                }
                 
                 // Duration indicator
                 Text(String(format: "Duration: %.1f seconds", endTime - startTime))
@@ -142,8 +150,6 @@ struct VideoTrimmerView: View {
                                     title: dreamTitle.isEmpty ? nil : dreamTitle
                                 )
                                 
-                                // Navigate to dream details view with the processed video
-                                let dreamService = DreamService(modelContext: modelContext, userId: userId)
                                 // Clean up the current video player
                                 playerViewModel.cleanup()
                                 // Present dream details view
@@ -197,10 +203,26 @@ struct VideoTrimmerView: View {
             }
             .overlay {
                 if processingService.isProcessing {
-                    ProgressView("Processing video...")
+                    ZStack {
+                        Color.black.opacity(0.7)
+                            .edgesIgnoringSafeArea(.all)
+                        
+                        VStack(spacing: 16) {
+                            ProgressView("Processing video...", value: processingService.progress, total: 1.0)
+                                .progressViewStyle(.linear)
+                                .tint(.white)
+                                .foregroundColor(.white)
+                            
+                            Text("\(Int(processingService.progress * 100))%")
+                                .font(.caption)
+                                .foregroundColor(.white)
+                                .animation(.easeInOut, value: processingService.progress)
+                        }
+                        .frame(width: 200)
                         .padding()
                         .background(.ultraThinMaterial)
-                        .cornerRadius(8)
+                        .cornerRadius(12)
+                    }
                 }
             }
         }
@@ -209,9 +231,11 @@ struct VideoTrimmerView: View {
     private func loadVideoDuration() async {
         let asset = AVAsset(url: videoURL)
         do {
-            let duration = try await asset.load(.duration).seconds
-            self.endTime = min(duration, 180) // 3 minutes
-            self.startTime = 0
+            let duration = try await asset.load(.duration)
+            await MainActor.run {
+                self.endTime = min(duration.seconds, 180) // 3 minutes
+                self.startTime = 0
+            }
         } catch {
             print("Error loading video duration: \(error)")
         }

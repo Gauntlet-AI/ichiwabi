@@ -7,6 +7,7 @@ import SwiftUI
 @MainActor
 final class VideoProcessingService: ObservableObject {
     @Published private(set) var isProcessing = false
+    @Published private(set) var progress: Double = 0
     @Published var error: Error?
     
     private let watermarkService = WatermarkService.shared
@@ -39,9 +40,62 @@ final class VideoProcessingService: ObservableObject {
         }
     }
     
-    @MainActor
-    private func createExportSession(
+    private func performExport(
+        _ exportSession: AVAssetExportSession
+    ) async throws {
+        // Create a continuation to track the export status
+        let status = try await withCheckedThrowingContinuation { continuation in
+            // Since we're @MainActor-isolated, this runs on the main thread
+            exportSession.exportAsynchronously { [weak exportSession] in
+                // Capture the status immediately
+                let status = exportSession?.status ?? .failed
+                let error = exportSession?.error
+                
+                // Resume on main actor to safely handle the result
+                Task { @MainActor in
+                    switch status {
+                    case .completed:
+                        self.progress = 1.0
+                        continuation.resume(returning: status)
+                    case .failed:
+                        print("Export failed with error: \(String(describing: error))")
+                        continuation.resume(throwing: error ?? VideoProcessingError.exportFailed)
+                    case .cancelled:
+                        continuation.resume(throwing: VideoProcessingError.exportCancelled)
+                    default:
+                        continuation.resume(throwing: VideoProcessingError.unknown)
+                    }
+                }
+            }
+            
+            // Track progress
+            let progressTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak exportSession] _ in
+                Task { @MainActor [weak self] in
+                    guard let progress = exportSession?.progress else { return }
+                    self?.progress = Double(progress)
+                }
+            }
+            
+            // Ensure timer is invalidated when export completes
+            Task {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    DispatchQueue.main.async {
+                        progressTimer.invalidate()
+                        continuation.resume()
+                    }
+                }
+            }
+        }
+        
+        // Verify the status
+        guard status == .completed else {
+            throw VideoProcessingError.exportFailed
+        }
+    }
+    
+    private func configureExportSession(
         asset: AVAsset,
+        outputURL: URL,
         quality: VideoQuality
     ) throws -> AVAssetExportSession {
         guard let exportSession = AVAssetExportSession(
@@ -50,107 +104,27 @@ final class VideoProcessingService: ObservableObject {
         ) else {
             throw VideoProcessingError.exportSessionCreationFailed
         }
+        
+        exportSession.outputURL = outputURL
+        exportSession.outputFileType = .mp4
+        exportSession.shouldOptimizeForNetworkUse = true
+        
         return exportSession
     }
     
-    @MainActor
-    private func configureBasicSettings(
-        _ exportSession: AVAssetExportSession,
-        outputURL: URL,
-        startTime: Double,
-        endTime: Double
-    ) {
-        exportSession.outputURL = outputURL
-        exportSession.outputFileType = .mp4
-        exportSession.timeRange = CMTimeRange(
-            start: CMTime(seconds: startTime, preferredTimescale: 600),
-            end: CMTime(seconds: endTime, preferredTimescale: 600)
-        )
-        exportSession.shouldOptimizeForNetworkUse = true
-    }
-    
-    @MainActor
-    private func configureVideoSettings(
-        _ exportSession: AVAssetExportSession,
-        asset: AVAsset,
-        quality: VideoQuality,
-        duration: Double,
-        date: Date? = nil,
-        title: String? = nil
-    ) async throws {
-        let bitrate = await calculateBitrate(for: asset, quality: quality)
-        
-        // Apply watermark if date is provided
-        if let date = date {
-            let composition = try await watermarkService.applyWatermark(
-                to: asset,
-                date: date,
-                title: title
-            )
-            exportSession.videoComposition = composition
-        } else {
-            let composition = await createVideoComposition(for: asset)
-            exportSession.videoComposition = composition
-        }
-        
-        exportSession.fileLengthLimit = Int64(Double(bitrate) * duration / 8.0)
-    }
-    
-    @MainActor
-    private func setupExportSession(
-        _ exportSession: AVAssetExportSession,
-        outputURL: URL,
-        startTime: Double,
-        endTime: Double,
-        asset: AVAsset,
-        quality: VideoQuality,
-        date: Date? = nil,
-        title: String? = nil
-    ) async throws {
-        configureBasicSettings(
-            exportSession,
-            outputURL: outputURL,
-            startTime: startTime,
-            endTime: endTime
-        )
-        
-        try await configureVideoSettings(
-            exportSession,
-            asset: asset,
-            quality: quality,
-            duration: endTime - startTime,
-            date: date,
-            title: title
-        )
-    }
-    
-    @MainActor
-    private func performExport(
-        _ exportSession: AVAssetExportSession,
-        outputURL: URL
+    func trimVideo(
+        at videoURL: URL,
+        from startTime: Double,
+        to endTime: Double,
+        date: Date,
+        title: String?
     ) async throws -> URL {
-        return try await withCheckedThrowingContinuation { continuation in
-            Task { @MainActor in
-                exportSession.exportAsynchronously { [exportSession] in
-                    switch exportSession.status {
-                    case .completed:
-                        continuation.resume(returning: outputURL)
-                    case .failed:
-                        print("Export failed with error: \(String(describing: exportSession.error))")
-                        continuation.resume(throwing: exportSession.error ?? VideoProcessingError.exportFailed)
-                    case .cancelled:
-                        continuation.resume(throwing: VideoProcessingError.exportCancelled)
-                    default:
-                        continuation.resume(throwing: VideoProcessingError.unknown)
-                    }
-                }
-            }
-        }
-    }
-    
-    func trimVideo(at videoURL: URL, from startTime: Double, to endTime: Double, date: Date, title: String?) async throws -> URL {
         isProcessing = true
-        defer { isProcessing = false }
+        progress = 0
+        
+        defer {
+            isProcessing = false
+        }
         
         print("\n✂️ Starting video trim process")
         print("✂️ Input video: \(videoURL)")
@@ -177,43 +151,34 @@ final class VideoProcessingService: ObservableObject {
         let validatedEnd = max(validatedStart + 1, min(endTime, duration))
         print("✂️ Validated trim range: \(validatedStart) to \(validatedEnd) seconds")
         
-        // Create export session
-        guard let exportSession = AVAssetExportSession(
-            asset: asset,
-            presetName: AVAssetExportPresetHighestQuality
-        ) else {
-            throw NSError(domain: "VideoProcessing", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create export session"])
-        }
-        
-        print("\n🎥 Export Session Configuration:")
-        print("🎥 - Preset: \(exportSession.presetName)")
-        print("🎥 - Supported File Types: \(exportSession.supportedFileTypes)")
-        
         // Create temporary URL for trimmed video
         let trimmedURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("trimmed_dream_\(UUID().uuidString).mp4")
         
         // Configure export session
-        exportSession.outputURL = trimmedURL
-        exportSession.outputFileType = .mp4
+        let exportSession = try configureExportSession(
+            asset: asset,
+            outputURL: trimmedURL,
+            quality: .high
+        )
+        
+        // Set time range
         exportSession.timeRange = CMTimeRange(
             start: CMTime(seconds: validatedStart, preferredTimescale: 600),
             end: CMTime(seconds: validatedEnd, preferredTimescale: 600)
         )
-        exportSession.shouldOptimizeForNetworkUse = false
         
         // Add watermark
-        let videoComposition = try await createWatermarkedComposition(for: asset, date: date)
+        let videoComposition = try await watermarkService.applyWatermark(
+            to: asset,
+            date: date,
+            title: title
+        )
         exportSession.videoComposition = videoComposition
         
         // Export the video
         print("\n🎥 Starting video export...")
-        await exportSession.export()
-        
-        if let error = exportSession.error {
-            print("❌ Export failed with error: \(error)")
-            throw error
-        }
+        try await performExport(exportSession)
         
         print("✅ Export completed with status: \(exportSession.status.rawValue)")
         
@@ -233,41 +198,15 @@ final class VideoProcessingService: ObservableObject {
             }
         }
         
-        guard exportSession.status == .completed else {
-            throw exportSession.error ?? NSError(domain: "VideoProcessing", code: -1, userInfo: [NSLocalizedDescriptionKey: "Export failed"])
-        }
-        
         return trimmedURL
     }
     
+    @MainActor
     private func createWatermarkImage(date: Date, size: CGSize) throws -> UIImage {
-        
-        
-        // Ensure we're on the main thread for SwiftUI view creation
-        if !Thread.isMainThread {
-            var result: UIImage?
-            var error: Error?
-            
-            DispatchQueue.main.sync {
-                do {
-                    result = try self.createWatermarkImage(date: date, size: size)
-                } catch let err {
-                    error = err
-                }
-            }
-            
-            if let error = error {
-                throw error
-            }
-            return result ?? UIImage()
-        }
-        
-        
+        // Create the watermark image on the main thread
         let renderer = UIGraphicsImageRenderer(size: size)
         
-        
         let image = renderer.image { context in
-            
             // Create a hosting controller for the watermark view
             let watermarkView = WatermarkView(
                 date: date,
@@ -275,7 +214,6 @@ final class VideoProcessingService: ObservableObject {
             )
             let hostingController = UIHostingController(rootView: watermarkView)
             hostingController.view.backgroundColor = .clear
-            
             
             // Size the hosting view
             let watermarkSize = CGSize(width: size.width * 0.4, height: size.height * 0.15)
@@ -286,14 +224,12 @@ final class VideoProcessingService: ObservableObject {
                 height: watermarkSize.height
             )
             
-            
             // Render the view
             hostingController.view.drawHierarchy(
                 in: hostingController.view.bounds,
                 afterScreenUpdates: true
             )
         }
-        
         
         return image
     }
@@ -307,26 +243,29 @@ final class VideoProcessingService: ObservableObject {
                 return
             }
             
-            
-            // Create the watermark image
-            let watermarkImage = try? self.createWatermarkImage(date: date, size: request.renderSize)
-            
-            
-            // Render the original video frame
-            let image = request.sourceImage
-            
-            // If we have a watermark, composite it over the video frame
-            if let watermarkImage = watermarkImage,
-               let watermark = CIImage(image: watermarkImage)?.transformed(by: CGAffineTransform(
-                    translationX: 20,
-                    y: 20
-               )) {
-                
-                let result = image.composited(over: watermark)
-                request.finish(with: result, context: nil)
-            } else {
-                print("🎨 No watermark available, using original frame")
-                request.finish(with: image, context: nil)
+            Task { @MainActor in
+                do {
+                    // Create the watermark image on the main actor
+                    let watermarkImage = try self.createWatermarkImage(date: date, size: request.renderSize)
+                    
+                    // Render the original video frame
+                    let image = request.sourceImage
+                    
+                    // If we have a watermark, composite it over the video frame
+                    if let watermark = CIImage(image: watermarkImage)?.transformed(by: CGAffineTransform(
+                        translationX: 20,
+                        y: 20
+                    )) {
+                        let result = image.composited(over: watermark)
+                        request.finish(with: result, context: nil)
+                    } else {
+                        print("🎨 No watermark available, using original frame")
+                        request.finish(with: image, context: nil)
+                    }
+                } catch {
+                    print("🎨 Failed to create watermark: \(error)")
+                    request.finish(with: request.sourceImage, context: nil)
+                }
             }
         }
         

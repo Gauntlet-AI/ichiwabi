@@ -31,7 +31,12 @@ class DreamDetailsViewModel: ObservableObject {
         
         // Start transcription when initialized
         Task {
-            await transcribeVideo()
+            do {
+                try await transcribeVideo()
+            } catch {
+                print("❌ Failed to start transcription: \(error.localizedDescription)")
+                // Don't set error since transcription is optional
+            }
         }
     }
     
@@ -69,6 +74,14 @@ class DreamDetailsViewModel: ObservableObject {
         let assetDuration = try await asset.load(.duration)
         print("💭 Using pre-trimmed video with duration: \(assetDuration.seconds) seconds")
         
+        // Create a task to update progress
+        let progressTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
+                self?.uploadProgress = await self?.videoUploadService.uploadProgress ?? 0
+            }
+        }
+        
         // Upload the video directly to cloud storage
         let (localURL, cloudURL) = try await videoUploadService.uploadVideo(
             at: videoURL,
@@ -76,6 +89,9 @@ class DreamDetailsViewModel: ObservableObject {
             date: dreamDate,
             title: title
         )
+        
+        // Cancel progress monitoring
+        progressTask.cancel()
         
         // Create dream with trim points set to 0 since video is already trimmed
         let dream = Dream(
@@ -100,48 +116,53 @@ class DreamDetailsViewModel: ObservableObject {
         NotificationCenter.default.post(name: NSNotification.Name("DismissVideoTrimmer"), object: nil)
     }
     
-    private func transcribeVideo() async {
+    private func transcribeVideo() async throws {
         guard !isTranscribing else { return }
         isTranscribing = true
         defer { isTranscribing = false }
         
-        do {
-            let asset = AVAsset(url: videoURL)
-            guard let audioTrack = try await asset.loadTracks(withMediaType: .audio).first else {
-                return
-            }
+        let asset = AVAsset(url: videoURL)
+        guard try await !asset.loadTracks(withMediaType: .audio).isEmpty else {
+            throw DreamDetailsError.noAudioTrack
+        }
+        
+        let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))!
+        guard recognizer.isAvailable else {
+            throw DreamDetailsError.transcriptionNotAvailable
+        }
+        
+        let request = SFSpeechURLRecognitionRequest(url: videoURL)
+        request.shouldReportPartialResults = true // Enable partial results for progress updates
+        
+        await withCheckedContinuation { continuation in
+            var recognitionTask: SFSpeechRecognitionTask?
             
-            let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))!
-            guard recognizer.isAvailable else {
-                throw NSError(domain: "Speech", code: -1, userInfo: [NSLocalizedDescriptionKey: "Speech recognition is not available"])
-            }
-            
-            let request = SFSpeechURLRecognitionRequest(url: videoURL)
-            request.shouldReportPartialResults = false
-            
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                recognizer.recognitionTask(with: request) { [weak self] result, error in
-                    if let error = error {
-                        continuation.resume(throwing: error)
-                        return
-                    }
-                    
-                    guard let result = result else {
-                        continuation.resume()
-                        return
-                    }
-                    
-                    if result.isFinal {
-                        Task { @MainActor [weak self] in
-                            self?.transcript = result.bestTranscription.formattedString
-                        }
-                        continuation.resume()
-                    }
+            recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+                if let error = error {
+                    print("❌ Transcription error: \(error.localizedDescription)")
+                    continuation.resume()
+                    return
+                }
+                
+                guard let result = result else {
+                    continuation.resume()
+                    return
+                }
+                
+                // Update transcript with partial results to show progress
+                Task { @MainActor [weak self] in
+                    self?.transcript = result.bestTranscription.formattedString
+                }
+                
+                if result.isFinal {
+                    continuation.resume()
                 }
             }
-        } catch {
-            print("❌ Transcription error: \(error.localizedDescription)")
-            // Don't show error to user - transcription is optional
+            
+            if recognitionTask == nil {
+                print("❌ Failed to create recognition task")
+                continuation.resume()
+            }
         }
     }
 }

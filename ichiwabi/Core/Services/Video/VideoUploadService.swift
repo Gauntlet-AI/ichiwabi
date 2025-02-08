@@ -55,70 +55,14 @@ final class VideoUploadService: ObservableObject {
             throw VideoProcessingError.invalidAsset
         }
         
-        // Create temporary URL for processed video
-        let tempDir = FileManager.default.temporaryDirectory
-        let processedURL = tempDir.appendingPathComponent("processed-\(UUID().uuidString).mp4")
-        
-        // Create export session with watermark
-        guard let exportSession = AVAssetExportSession(
+        // Process the video
+        let processedURL = try await processVideo(
             asset: asset,
-            presetName: AVAssetExportPreset3840x2160 // Use 4K preset
-        ) else {
-            throw VideoProcessingError.exportSessionCreationFailed
-        }
-        
-        print("\n🎥 Export Session Configuration:")
-        print("🎥 - Preset: \(exportSession.presetName)")
-        print("🎥 - Supported File Types: \(exportSession.supportedFileTypes)")
-        
-        // Configure export with high quality settings
-        exportSession.outputURL = processedURL
-        exportSession.outputFileType = .mp4
-        exportSession.shouldOptimizeForNetworkUse = false
-        
-        // Set maximum bitrate (20 Mbps)
-        let targetBitrate = max(bitrate, 20_000_000) // At least 20 Mbps
-        exportSession.fileLengthLimit = Int64(Double(targetBitrate) * duration)
-        
-        // Add watermark
-        let watermarkService = WatermarkService.shared
-        let videoComposition = try await watermarkService.applyWatermark(
-            to: asset,
             date: date,
-            title: title
+            title: title,
+            bitrate: Double(bitrate),
+            duration: duration
         )
-        exportSession.videoComposition = videoComposition
-        
-        // Export the video
-        print("\n🎥 Starting video export...")
-        await exportSession.export()
-        
-        if let error = exportSession.error {
-            print("❌ Export failed with error: \(error)")
-            throw error
-        }
-        
-        print("✅ Export completed with status: \(exportSession.status.rawValue)")
-        
-        // Log processed video details
-        if FileManager.default.fileExists(atPath: processedURL.path) {
-            let processedAsset = AVAsset(url: processedURL)
-            let processedTracks = try await processedAsset.loadTracks(withMediaType: .video)
-            if let processedTrack = processedTracks.first {
-                let size = try await processedTrack.load(.naturalSize)
-                let bitrate = try await processedTrack.load(.estimatedDataRate)
-                let framerate = try await processedTrack.load(.nominalFrameRate)
-                print("\n📊 Processed Video Details:")
-                print("📊 - Dimensions: \(size)")
-                print("📊 - Bitrate: \(bitrate) bps")
-                print("📊 - Frame Rate: \(framerate) fps")
-                print("📊 - File Size: \(try FileManager.default.attributesOfItem(atPath: processedURL.path)[.size] ?? 0) bytes")
-            }
-        }
-        
-        guard exportSession.status == .completed else {
-            throw exportSession.error ?? VideoProcessingError.exportFailed
-        }
         
         // Create a unique filename for the processed video
         let filename = "\(UUID().uuidString).mp4"
@@ -131,7 +75,7 @@ final class VideoUploadService: ObservableObject {
         print("🎥 Saved local copy at: \(localCopy)")
         
         // Start upload to Firebase Storage
-        let cloudURL = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+        let cloudURL: String = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
             let metadata = StorageMetadata()
             metadata.contentType = "video/mp4"
             
@@ -217,13 +161,114 @@ final class VideoUploadService: ObservableObject {
         return localURL
     }
     
+    private func configureExportSession(
+        asset: AVAsset,
+        processedURL: URL,
+        bitrate: Double,
+        duration: Double
+    ) -> AVAssetExportSession? {
+        let session = AVAssetExportSession(
+            asset: asset,
+            presetName: AVAssetExportPreset3840x2160 // Use 4K preset
+        )
+        
+        print("\n🎥 Export Session Configuration:")
+        print("🎥 - Preset: \(session?.presetName ?? "none")")
+        print("🎥 - Supported File Types: \(session?.supportedFileTypes ?? [])")
+        
+        // Configure export with high quality settings
+        session?.outputURL = processedURL
+        session?.outputFileType = .mp4
+        session?.shouldOptimizeForNetworkUse = false
+        
+        // Set maximum bitrate (20 Mbps)
+        let targetBitrate = max(bitrate, 20_000_000) // At least 20 Mbps
+        session?.fileLengthLimit = Int64(Double(targetBitrate) * duration)
+        
+        return session
+    }
+    
+    private func logProcessedVideoDetails(at url: URL) async throws {
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        
+        let processedAsset = AVAsset(url: url)
+        let processedTracks = try await processedAsset.loadTracks(withMediaType: .video)
+        
+        if let processedTrack = processedTracks.first {
+            let size = try await processedTrack.load(.naturalSize)
+            let bitrate = try await processedTrack.load(.estimatedDataRate)
+            let framerate = try await processedTrack.load(.nominalFrameRate)
+            print("\n📊 Processed Video Details:")
+            print("📊 - Dimensions: \(size)")
+            print("📊 - Bitrate: \(bitrate) bps")
+            print("📊 - Frame Rate: \(framerate) fps")
+            print("📊 - File Size: \(try FileManager.default.attributesOfItem(atPath: url.path)[.size] ?? 0) bytes")
+        }
+    }
+    
+    private func processVideo(
+        asset: AVAsset,
+        date: Date,
+        title: String?,
+        bitrate: Double,
+        duration: Double
+    ) async throws -> URL {
+        // Create temporary URL for processed video
+        let tempDir = FileManager.default.temporaryDirectory
+        let processedURL = tempDir.appendingPathComponent("processed-\(UUID().uuidString).mp4")
+        
+        // Create and configure export session with watermark
+        guard let exportSession = configureExportSession(
+            asset: asset,
+            processedURL: processedURL,
+            bitrate: bitrate,
+            duration: duration
+        ) else {
+            throw VideoProcessingError.exportSessionCreationFailed
+        }
+        
+        // Add watermark
+        let watermarkService = WatermarkService.shared
+        let videoComposition = try await watermarkService.applyWatermark(
+            to: asset,
+            date: date,
+            title: title
+        )
+        
+        exportSession.videoComposition = videoComposition
+        
+        // Export the video using a continuation to handle the async export
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            Task { @MainActor in
+                exportSession.exportAsynchronously {
+                    switch exportSession.status {
+                    case .completed:
+                        continuation.resume()
+                    case .failed:
+                        print("Export failed with error: \(String(describing: exportSession.error))")
+                        continuation.resume(throwing: exportSession.error ?? VideoProcessingError.exportFailed)
+                    case .cancelled:
+                        continuation.resume(throwing: VideoProcessingError.exportCancelled)
+                    default:
+                        continuation.resume(throwing: VideoProcessingError.unknown)
+                    }
+                }
+            }
+        }
+        
+        // Log processed video details
+        try await logProcessedVideoDetails(at: processedURL)
+        
+        return processedURL
+    }
+    
     private func saveVideoLocally(from url: URL, userId: String, filename: String) async throws -> URL {
         let fileManager = FileManager.default
         
         // Create directory if needed
         let documentsPath = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let dreamsPath = documentsPath.appendingPathComponent("dreams/\(userId)", isDirectory: true)
-        try? fileManager.createDirectory(at: dreamsPath, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: dreamsPath, withIntermediateDirectories: true)
         
         // Copy file
         let destinationURL = dreamsPath.appendingPathComponent(filename)

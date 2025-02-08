@@ -42,7 +42,7 @@ class DreamSyncService {
         
         // Configure Firestore settings
         let settings = FirestoreSettings()
-        settings.isPersistenceEnabled = true
+        settings.cacheSettings = PersistentCacheSettings()
         self.db.settings = settings
     }
     

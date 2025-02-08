@@ -102,15 +102,11 @@
   - [x] Implement state restoration on failure
   - [x] Add offline queue management
 
-## Video Quality & Performance
+## Video Quality & Performance (for later)
 - [ ] Implement video quality settings
   - [ ] Add quality selection UI
   - [ ] Handle quality changes during recording
   - [ ] Save quality preferences
-- [ ] Add performance monitoring
-  - [ ] Track recording metrics
-  - [ ] Monitor memory usage
-  - [ ] Log performance data
 - [ ] Optimize resource usage
   - [ ] Implement cleanup routines
   - [ ] Handle memory warnings

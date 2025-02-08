@@ -8,8 +8,8 @@ class FirebaseConfig {
         FirebaseApp.configure()
         
         // Initialize Firebase services for production
-        let db = Firestore.firestore()
-        let storage = Storage.storage()
+        let _ = Firestore.firestore()
+        let _ = Storage.storage()
         
         print("🔥 Firebase configured for production")
     }

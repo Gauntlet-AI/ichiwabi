@@ -126,7 +126,6 @@ struct DreamEditView: View {
     do {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(for: Dream.self, configurations: config)
-        let context = ModelContext(container)
         
         // Create a sample dream
         let dream = Dream(
@@ -138,6 +137,9 @@ struct DreamEditView: View {
             transcript: "I was soaring through the clouds, feeling the wind beneath my wings...",
             dreamDate: Date()
         )
+        
+        // Insert the dream into the container's context
+        container.mainContext.insert(dream)
         
         return NavigationStack {
             DreamEditView(dream: dream)

@@ -1,6 +1,6 @@
 import Foundation
 import UIKit
-import CoreImage
+@preconcurrency import CoreImage
 import AVFoundation
 
 // Cache struct to fix large tuple warning
@@ -171,19 +171,8 @@ final class WatermarkService {
         print("🎬 - Original CIImage extent: \(watermarkCIImage.extent)")
         
         // Ensure the watermark is properly bounded
-        watermarkCIImage = watermarkCIImage.clampedToExtent()
-        print("🎬 - Clamped CIImage extent: \(watermarkCIImage.extent)")
-        
-        // Create the compositing filter
-        print("🎬 Creating compositing filter")
-        guard let compositingFilter = CIFilter(name: "CISourceOverCompositing") else {
-            print("❌ Failed to create filters")
-            throw WatermarkError.filterCreationFailed
-        }
-        
-        // Set the watermark as input for compositing
-        compositingFilter.setValue(watermarkCIImage, forKey: kCIInputImageKey)
-        print("✅ Set watermark as input image")
+        let boundedWatermark = watermarkCIImage.clampedToExtent()
+        print("🎬 - Clamped CIImage extent: \(boundedWatermark.extent)")
         
         var frameCount = 0
         
@@ -198,7 +187,15 @@ final class WatermarkService {
             // Get source image and ensure it's properly bounded
             let sourceImage = request.sourceImage.clampedToExtent()
             
+            // Create a new compositing filter for each frame
+            guard let compositingFilter = CIFilter(name: "CISourceOverCompositing") else {
+                print("❌ Failed to create filter for frame \(frameCount)")
+                request.finish(with: sourceImage, context: nil)
+                return
+            }
+            
             // Apply watermark
+            compositingFilter.setValue(boundedWatermark, forKey: kCIInputImageKey)
             compositingFilter.setValue(sourceImage, forKey: kCIInputBackgroundImageKey)
             
             if let output = compositingFilter.outputImage?.cropped(to: sourceImage.extent) {

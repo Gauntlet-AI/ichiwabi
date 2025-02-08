@@ -298,13 +298,12 @@ struct DreamPlaybackView: View {
             } catch {
                 print("\n❌ ==================== ERROR ====================")
                 print("❌ Failed to load video: \(error)")
-                if let nsError = error as? NSError {
-                    print("❌ Error details:")
-                    print("❌ - Domain: \(nsError.domain)")
-                    print("❌ - Code: \(nsError.code)")
-                    print("❌ - Description: \(nsError.localizedDescription)")
-                    print("❌ - User Info: \(nsError.userInfo)")
-                }
+                let nsError = error as NSError
+                print("❌ Error details:")
+                print("❌ - Domain: \(nsError.domain)")
+                print("❌ - Code: \(nsError.code)")
+                print("❌ - Description: \(nsError.localizedDescription)")
+                print("❌ - User Info: \(nsError.userInfo)")
                 print("❌ ==================== END ====================\n")
                 await MainActor.run {
                     errorMessage = "Failed to load video: \(error.localizedDescription)"
@@ -346,13 +345,12 @@ struct DreamPlaybackView: View {
             print("✅ Video prepared for sharing")
         } catch {
             print("❌ Failed to prepare video for sharing: \(error)")
-            if let nsError = error as NSError? {
-                print("❌ Error details:")
-                print("❌ - Domain: \(nsError.domain)")
-                print("❌ - Code: \(nsError.code)")
-                print("❌ - Description: \(nsError.localizedDescription)")
-                print("❌ - User Info: \(nsError.userInfo)")
-            }
+            let nsError = error as NSError
+            print("❌ Error details:")
+            print("❌ - Domain: \(nsError.domain)")
+            print("❌ - Code: \(nsError.code)")
+            print("❌ - Description: \(nsError.localizedDescription)")
+            print("❌ - User Info: \(nsError.userInfo)")
         }
     }
 }

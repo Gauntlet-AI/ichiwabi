@@ -86,24 +86,25 @@ struct HomeView: View {
     }
     
     private var mainContent: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                // Welcome Section
-                if let user = currentUser {
-                    welcomeSection(user: user)
-                }
-                
-                // Quick Record Button
-                recordButton
-                
-                // Streak Section
-                streakSection
-                
-                // Recent Dreams Section
-                recentDreamsSection
+        VStack(spacing: 32) {
+            // Welcome Section
+            if let user = currentUser {
+                welcomeSection(user: user)
+                    .padding(.top)
             }
-            .padding()
+            
+            Spacer()
+            
+            // Large Circular Record Button
+            recordButton
+            
+            Spacer()
+            
+            // Streak Section at bottom
+            streakSection
+                .padding(.bottom)
         }
+        .padding()
     }
     
     private var loadingOverlay: some View {
@@ -133,18 +134,21 @@ struct HomeView: View {
         Button {
             viewModel.startRecording()
         } label: {
-            HStack {
+            VStack(spacing: 16) {
                 Image(systemName: "plus.circle.fill")
-                    .font(.title2)
+                    .font(.system(size: 60))
                 Text("Record Dream")
+                    .font(.title2)
                     .fontWeight(.semibold)
             }
-            .frame(maxWidth: .infinity)
-            .padding()
+            .frame(width: 200, height: 200)
             .background(Color.accentColor)
             .foregroundColor(Theme.darkNavy)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .clipShape(Circle())
+            .shadow(color: Color.accentColor.opacity(0.3), radius: 20, x: 0, y: 10)
         }
+        .scaleEffect(1.0)
+        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: true)
     }
     
     private var streakSection: some View {
@@ -177,45 +181,6 @@ struct HomeView: View {
         .padding()
         .background(Color.yellow.opacity(0.15))
         .clipShape(RoundedRectangle(cornerRadius: 16))
-    }
-    
-    private var recentDreamsSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("Recent Dreams")
-                    .font(.headline)
-                    .foregroundColor(Theme.textPrimary)
-                Spacer()
-                NavigationLink {
-                    LibraryView(filterDate: Date())
-                } label: {
-                    Text("View All")
-                        .font(.subheadline)
-                        .foregroundColor(Theme.textPrimary)
-                }
-            }
-            
-            if viewModel.recentDreams.isEmpty {
-                ContentUnavailableView(
-                    "No Recent Dreams",
-                    systemImage: "moon.zzz",
-                    description: Text("Dreams you record will appear here")
-                )
-                .foregroundColor(Theme.textPrimary)
-            } else {
-                LazyVStack(spacing: 12) {
-                    ForEach(viewModel.recentDreams) { dream in
-                        Button {
-                            selectedDream = dream
-                        } label: {
-                            DreamCell(dream: dream)
-                                .background(Color.secondary.opacity(0.1))
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                        }
-                    }
-                }
-            }
-        }
     }
     
     private func resetAppState() async {

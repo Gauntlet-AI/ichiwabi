@@ -93,12 +93,6 @@ struct DreamDetailsView: View {
                         .frame(minHeight: 100)
                 }
             }
-            
-            if viewModel.uploadProgress > 0 && viewModel.uploadProgress < 1 {
-                Section {
-                    ProgressView("Uploading video...", value: viewModel.uploadProgress, total: 1.0)
-                }
-            }
         }
         .navigationTitle("New Dream")
         .navigationBarTitleDisplayMode(.inline)
@@ -145,11 +139,48 @@ struct DreamDetailsView: View {
             }
         }
         .overlay {
-            if viewModel.isLoading {
-                ProgressView("Saving dream...")
+            if viewModel.isLoading || viewModel.uploadProgress > 0 {
+                ZStack {
+                    Color.black.opacity(0.7)
+                        .edgesIgnoringSafeArea(.all)
+                    
+                    VStack(spacing: 16) {
+                        if viewModel.uploadProgress > 0 {
+                            VStack(spacing: 8) {
+                                ProgressView("Uploading dream...", value: viewModel.uploadProgress, total: 1.0)
+                                    .progressViewStyle(.linear)
+                                    .tint(.white)
+                                    .foregroundColor(.white)
+                                
+                                Text("\(Int(viewModel.uploadProgress * 100))%")
+                                    .font(.caption)
+                                    .foregroundColor(.white)
+                                    .animation(.easeInOut, value: viewModel.uploadProgress)
+                                
+                                if viewModel.uploadProgress < 1.0 {
+                                    Text("Please wait while your dream is being uploaded...")
+                                        .font(.caption)
+                                        .foregroundColor(.white.opacity(0.8))
+                                        .multilineTextAlignment(.center)
+                                }
+                            }
+                        } else {
+                            VStack(spacing: 8) {
+                                ProgressView("Preparing dream...")
+                                    .tint(.white)
+                                    .foregroundColor(.white)
+                                
+                                Text("Getting your dream ready...")
+                                    .font(.caption)
+                                    .foregroundColor(.white.opacity(0.8))
+                            }
+                        }
+                    }
+                    .frame(width: 250)  // Made wider for the additional text
                     .padding()
                     .background(.ultraThinMaterial)
-                    .cornerRadius(8)
+                    .cornerRadius(12)
+                }
             }
         }
         .onAppear {
