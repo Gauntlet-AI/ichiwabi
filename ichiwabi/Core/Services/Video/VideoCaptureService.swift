@@ -99,8 +99,12 @@ private extension VideoCaptureService {
                 }
                 
                 self.sessionQueue.async {
-                    Task { @MainActor in
-                        self.configureSession(continuation: continuation)
+                    do {
+                        try self.configureSession()
+                        continuation.resume()
+                    } catch {
+                        print("📷 Setup failed with error: \(error)")
+                        continuation.resume(throwing: error)
                     }
                 }
             }
@@ -112,22 +116,30 @@ private extension VideoCaptureService {
         }
     }
     
-    private func configureSession(continuation: CheckedContinuation<Void, Error>) {
+    private func configureSession() throws {
         print("📷 Configuring session on session queue")
+        
+        // Ensure we're on the session queue
+        dispatchPrecondition(condition: .onQueue(sessionQueue))
+        
         cleanupExistingSession()
         
         // Create new session
         let session = AVCaptureSession()
-        session.beginConfiguration()
         print("📷 Created new capture session")
+        
+        // Configure session on session queue
+        session.beginConfiguration()
         
         // Set session preset for high quality
         session.sessionPreset = .high
         
         do {
-            try configureSessionComponents(session: session)
+            // Get current camera position synchronously
+            let cameraPosition = currentCamera
+            try configureSessionComponents(session: session, position: cameraPosition)
             
-            // Commit configuration
+            // Commit configuration while still on session queue
             session.commitConfiguration()
             print("📷 Committed session configuration")
             
@@ -135,41 +147,40 @@ private extension VideoCaptureService {
             session.startRunning()
             print("📷 Started capture session")
             
-            continuation.resume()
+            // Update the session property on main thread
+            Task { @MainActor in
+                self.captureSession = session
+            }
+            
         } catch {
             print("📷 Setup error: \(error)")
-            Task { @MainActor in
-                self.handleError(error)
-            }
-            continuation.resume(throwing: error)
+            session.commitConfiguration() // Ensure we commit even on error
+            throw error
         }
     }
     
     private func cleanupExistingSession() {
-        Task { @MainActor in
-            if let existingSession = captureSession {
-                existingSession.stopRunning()
-                // Remove all inputs and outputs
-                for input in existingSession.inputs {
-                    existingSession.removeInput(input)
-                }
-                for output in existingSession.outputs {
-                    existingSession.removeOutput(output)
-                }
-                print("📷 Cleaned up existing session")
+        if let existingSession = captureSession {
+            existingSession.stopRunning()
+            // Remove all inputs and outputs
+            for input in existingSession.inputs {
+                existingSession.removeInput(input)
             }
+            for output in existingSession.outputs {
+                existingSession.removeOutput(output)
+            }
+            print("📷 Cleaned up existing session")
         }
     }
     
-    private func configureSessionComponents(session: AVCaptureSession) throws {
-        // Get current camera position
-        let cameraPosition = { @MainActor in
-            return self.currentCamera
-        }()
-        print("📷 Setting up camera position: \(cameraPosition)")
+    private func configureSessionComponents(session: AVCaptureSession, position: AVCaptureDevice.Position) throws {
+        // Ensure we're on the session queue
+        dispatchPrecondition(condition: .onQueue(sessionQueue))
+        
+        print("📷 Setting up camera position: \(position)")
         
         // Configure video
-        let videoDevice = try configureVideoInput(session: session, position: cameraPosition)
+        let videoDevice = try configureVideoInput(session: session, position: position)
         try configureLowLightSettings(for: videoDevice)
         
         // Configure audio
@@ -185,7 +196,6 @@ private extension VideoCaptureService {
         Task { @MainActor in
             self.videoOutput = output
             self.previewLayer = preview
-            self.captureSession = session
             print("📷 Updated main thread properties")
             
             if let completion = self.setupCompletion {
@@ -310,19 +320,24 @@ extension VideoCaptureService {
             // Store current view
             let currentView = previewView
             
-            // Get current session
-            if let session = captureSession {
-                let capturedSession = session
-                sessionQueue.async {
-                    capturedSession.stopRunning()
+            sessionQueue.async {
+                // Stop current session
+                if let session = self.captureSession {
+                    session.stopRunning()
                 }
-            }
-            
-            currentCamera = currentCamera == .front ? .back : .front
-            
-            await setupCaptureSession()
-            if let view = currentView {
-                startPreview(in: view)
+                
+                Task { @MainActor in
+                    // Update camera position
+                    self.currentCamera = self.currentCamera == .front ? .back : .front
+                    
+                    // Setup new session
+                    Task {
+                        await self.setupCaptureSession()
+                        if let view = currentView {
+                            await self.startPreview(in: view)
+                        }
+                    }
+                }
             }
         }
     }
@@ -362,29 +377,43 @@ extension VideoCaptureService {
             } else {
                 setupCompletionHandler(for: view)
             }
+            
+            // Start session on background queue if needed
+            if let session = self.captureSession, !session.isRunning {
+                sessionQueue.async {
+                    if !session.isRunning {
+                        session.startRunning()
+                        print("📷 Started capture session for preview")
+                    }
+                }
+            }
         }
     }
     
     private func configurePreviewConnection(_ layer: AVCaptureVideoPreviewLayer) {
         guard let connection = layer.connection else { return }
         
-        connection.preferredVideoStabilizationMode = .off
-        if #available(iOS 17.0, *) {
-            connection.videoRotationAngle = 90
-        } else {
-            connection.videoOrientation = .portrait
+        sessionQueue.async {
+            connection.preferredVideoStabilizationMode = .off
+            if #available(iOS 17.0, *) {
+                connection.videoRotationAngle = 90
+            } else {
+                connection.videoOrientation = .portrait
+            }
+            connection.automaticallyAdjustsVideoMirroring = false
+            connection.isVideoMirrored = (self.currentCamera == .front)
         }
-        connection.automaticallyAdjustsVideoMirroring = false
-        connection.isVideoMirrored = (self.currentCamera == .front)
     }
     
     private func setupPreviewLayerInView(_ previewLayer: AVCaptureVideoPreviewLayer, view: UIView) {
         print("📷 Configuring preview layer frame: \(view.bounds)")
+        
+        // Configure layer properties on main thread
         previewLayer.frame = view.bounds
         previewLayer.connection?.isEnabled = true
         
         // Force layer to be renderable
-        previewLayer.drawsAsynchronously = false
+        previewLayer.drawsAsynchronously = true  // Enable asynchronous drawing
         view.layer.isOpaque = true
         view.backgroundColor = .black
         
@@ -393,7 +422,16 @@ extension VideoCaptureService {
         print("📷 Added preview layer to view")
         
         forceImmediateLayout(view)
-        startCaptureSessionIfNeeded()
+        
+        // Start session on background queue if needed
+        if let session = captureSession, !session.isRunning {
+            sessionQueue.async {
+                if !session.isRunning {
+                    session.startRunning()
+                    print("📷 Started capture session for preview")
+                }
+            }
+        }
     }
     
     private func forceImmediateLayout(_ view: UIView) {
@@ -402,6 +440,9 @@ extension VideoCaptureService {
         view.setNeedsLayout()
         view.layoutIfNeeded()
         CATransaction.commit()
+        
+        // Force a display update
+        view.layer.displayIfNeeded()
     }
     
     private func startCaptureSessionIfNeeded() {
@@ -413,12 +454,14 @@ extension VideoCaptureService {
             if !capturedSession.isRunning {
                 print("📷 Starting capture session")
                 capturedSessionQueue.async {
-                    capturedSession.startRunning()
-                    print("📷 Capture session started")
-                    
-                    // Force a preview layer update on the main thread
-                    Task { @MainActor in
-                        self.previewLayer?.setNeedsDisplay()
+                    if !capturedSession.isRunning {
+                        capturedSession.startRunning()
+                        print("📷 Capture session started")
+                        
+                        // Force a preview layer update on the main thread
+                        Task { @MainActor in
+                            self.previewLayer?.setNeedsDisplay()
+                        }
                     }
                 }
             } else {
@@ -566,9 +609,7 @@ extension VideoCaptureService {
                     // Remove preview layer
                     if let previewLayer = self.previewLayer {
                         print("📷 Removing preview layer")
-                        DispatchQueue.main.async {
-                            previewLayer.removeFromSuperlayer()
-                        }
+                        previewLayer.removeFromSuperlayer()
                     }
                     
                     // Clear references in specific order
@@ -603,9 +644,8 @@ extension VideoCaptureService {
                 
                 // Capture necessary values before starting recording
                 let capturedVideoOutput = videoOutput
-                let capturedSessionQueue = self.sessionQueue
                 
-                capturedSessionQueue.async {
+                sessionQueue.async {
                     capturedVideoOutput.startRecording(to: tempURL, recordingDelegate: self)
                     
                     Task { @MainActor in
@@ -632,22 +672,8 @@ extension VideoCaptureService {
                 
                 let currentRecordingURL = self.recordingURL
                 let capturedOutput = output
-                let capturedSessionQueue = self.sessionQueue
-                let capturedPreviewLayer = self.previewLayer
                 
-                print("📷 Preview layer state:")
-                if let previewLayer = capturedPreviewLayer {
-                    print("📷 - Has preview layer: true")
-                    print("📷 - Connection enabled: \(String(describing: previewLayer.connection?.isEnabled))")
-                    print("📷 - Frame: \(previewLayer.frame)")
-                    print("📷 - Session running: \(String(describing: previewLayer.session?.isRunning))")
-                } else {
-                    print("📷 - Has preview layer: false")
-                }
-                
-                print("📷 Ensuring preview layer stays active")
-                
-                capturedSessionQueue.async {
+                sessionQueue.async {
                     capturedOutput.stopRecording()
                     
                     Task { @MainActor in
@@ -714,7 +740,9 @@ extension VideoCaptureService {
                     let capturedSessionQueue = self.sessionQueue
                     
                     capturedSessionQueue.async {
-                        capturedSession.startRunning()
+                        if !capturedSession.isRunning {
+                            capturedSession.startRunning()
+                        }
                     }
                 }
             }

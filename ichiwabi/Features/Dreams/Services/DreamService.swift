@@ -4,7 +4,6 @@ import FirebaseFirestore
 
 @MainActor
 class DreamService: ObservableObject {
-    private let db = Firestore.firestore()
     private let modelContext: ModelContext
     private let userId: String
     private let calendar: Calendar
@@ -57,7 +56,7 @@ class DreamService: ObservableObject {
     
     private func syncDreamToFirestore(_ dream: Dream) async throws {
         print("💭 Syncing dream to Firestore - ID: \(dream.dreamId), User: \(dream.userId)")
-        let docRef = db.collection("dreams").document(dream.dreamId.uuidString)
+        let docRef = Firestore.firestore().collection("dreams").document(dream.dreamId.uuidString)
         try await docRef.setData(dream.firestoreData, merge: true)
         dream.isSynced = true
         dream.lastSyncedAt = Date()
@@ -65,7 +64,7 @@ class DreamService: ObservableObject {
     }
     
     private func deleteDreamFromFirestore(_ dream: Dream) async throws {
-        let docRef = db.collection("dreams").document(dream.dreamId.uuidString)
+        let docRef = Firestore.firestore().collection("dreams").document(dream.dreamId.uuidString)
         try await docRef.delete()
     }
     
@@ -75,7 +74,7 @@ class DreamService: ObservableObject {
         let normalizedStart = calendar.startOfDay(for: start)
         let normalizedEnd = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: end))!
         
-        let query = db.collection("dreams")
+        let query = Firestore.firestore().collection("dreams")
             .whereField("userId", isEqualTo: userId)
             .whereField("dreamDate", isGreaterThanOrEqualTo: Timestamp(date: normalizedStart))
             .whereField("dreamDate", isLessThan: Timestamp(date: normalizedEnd))
@@ -99,7 +98,7 @@ class DreamService: ObservableObject {
         isLoading = true
         defer { isLoading = false }
         
-        var query = db.collection("dreams").whereField("userId", isEqualTo: userId)
+        var query = Firestore.firestore().collection("dreams").whereField("userId", isEqualTo: userId)
         
         if let date = date {
             let startOfDay = calendar.startOfDay(for: date)

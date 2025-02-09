@@ -1,0 +1,8 @@
+// Disable SwiftUI launch screen generation
+INFOPLIST_KEY_UILaunchScreen_Generation = NO
+
+// Use storyboard launch screen
+INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen
+
+// Force dark mode
+INFOPLIST_KEY_UIUserInterfaceStyle = Dark 

@@ -15,17 +15,17 @@
                         <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <subviews>
-                            <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleToFill" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="LaunchScreenImage" translatesAutoresizingMaskIntoConstraints="NO" id="launchImage">
+                            <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFill" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="LaunchScreenImage" translatesAutoresizingMaskIntoConstraints="NO" id="app-icon">
                                 <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>
                             </imageView>
                         </subviews>
                         <viewLayoutGuide key="safeArea" id="6Tk-OE-BBY"/>
-                        <color key="backgroundColor" white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                        <color key="backgroundColor" white="0" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
                         <constraints>
-                            <constraint firstItem="launchImage" firstAttribute="leading" secondItem="Ze5-6b-2t3" secondAttribute="leading" id="7Df-uP-7g9"/>
-                            <constraint firstAttribute="bottom" secondItem="launchImage" secondAttribute="bottom" id="Kh3-QY-3ux"/>
-                            <constraint firstAttribute="trailing" secondItem="launchImage" secondAttribute="trailing" id="cg7-eh-ZpY"/>
-                            <constraint firstItem="launchImage" firstAttribute="top" secondItem="Ze5-6b-2t3" secondAttribute="top" id="vxB-YB-JSE"/>
+                            <constraint firstItem="app-icon" firstAttribute="top" secondItem="Ze5-6b-2t3" secondAttribute="top" id="top"/>
+                            <constraint firstAttribute="bottom" secondItem="app-icon" secondAttribute="bottom" id="bottom"/>
+                            <constraint firstItem="app-icon" firstAttribute="leading" secondItem="Ze5-6b-2t3" secondAttribute="leading" id="leading"/>
+                            <constraint firstAttribute="trailing" secondItem="app-icon" secondAttribute="trailing" id="trailing"/>
                         </constraints>
                     </view>
                 </viewController>
@@ -35,6 +35,6 @@
         </scene>
     </scenes>
     <resources>
-        <image name="LaunchScreenImage" width="231" height="375.66665649414062"/>
+        <image name="LaunchScreenImage" width="290" height="466.66665649414062"/>
     </resources>
 </document>

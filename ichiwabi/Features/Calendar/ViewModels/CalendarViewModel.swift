@@ -13,11 +13,28 @@ class CalendarViewModel: ObservableObject {
     @Published var selectedLibraryDate: Date?
     @Published var showingLibrary: Bool = false
     
+    // Caching properties
+    private var lastStreakCalculation: Date?
+    private var cachedStreak: Int = 0
+    private var loadedDateRanges: Set<String> = []
+    
     init(dreamService: DreamService) {
         self.dreamService = dreamService
     }
     
+    private func monthKey(_ date: Date) -> String {
+        let components = calendar.dateComponents([.year, .month], from: date)
+        return "\(components.year ?? 0)-\(components.month ?? 0)"
+    }
+    
     func loadDreamsForMonth(_ date: Date) async {
+        let monthKey = monthKey(date)
+        
+        // Skip if already loaded
+        guard !loadedDateRanges.contains(monthKey) else {
+            return
+        }
+        
         guard let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: date)),
               let monthEnd = calendar.date(byAdding: DateComponents(month: 1, day: -1), to: monthStart) else {
             return
@@ -36,54 +53,47 @@ class CalendarViewModel: ObservableObject {
             // Update the published property on the main thread
             await MainActor.run {
                 dreamCountByDate.merge(countByDate) { _, new in new }
+                loadedDateRanges.insert(monthKey)
             }
         } catch {
             self.error = error
         }
     }
     
-    func calculateStreak() async {
-        let today = calendar.startOfDay(for: Date())
-        var currentDate = calendar.date(byAdding: .day, value: -1, to: today)! // Start from yesterday
-        var streakCount = 0
+    private func calculateStreakFromDreams(dreams: [Dream], today: Date) -> Int {
+        // If we have a cached streak from today, use it
+        if let lastCalculation = lastStreakCalculation,
+           calendar.isDate(lastCalculation, inSameDayAs: today) {
+            return cachedStreak
+        }
         
-        // First check if there's a dream for today
-        let todayDreams = try? await dreamService.getDreamsForDateRange(
-            start: today,
-            end: today
+        var streakCount = 0
+        var currentDate = today
+        let dreamsGroupedByDate = Dictionary(
+            grouping: dreams,
+            by: { calendar.startOfDay(for: $0.dreamDate) }
         )
         
-        if let todayDreams = todayDreams, !todayDreams.isEmpty {
+        // Check if there's a dream for today
+        if dreamsGroupedByDate[today] != nil {
             streakCount += 1
         }
         
-        // Then check previous days
+        // Check previous days
         while true {
-            do {
-                let dreams = try await dreamService.getDreamsForDateRange(
-                    start: currentDate,
-                    end: currentDate
-                )
-                
-                if dreams.isEmpty {
-                    break
-                }
-                
-                streakCount += 1
-                
-                guard let previousDay = calendar.date(byAdding: .day, value: -1, to: currentDate) else {
-                    break
-                }
-                currentDate = previousDay
-            } catch {
-                self.error = error
+            guard let previousDay = calendar.date(byAdding: .day, value: -1, to: currentDate) else {
                 break
             }
+            
+            if dreamsGroupedByDate[previousDay] == nil {
+                break
+            }
+            
+            streakCount += 1
+            currentDate = previousDay
         }
         
-        await MainActor.run {
-            self.currentStreak = streakCount
-        }
+        return streakCount
     }
     
     func getDreamCount(for date: Date) -> Int {
@@ -95,16 +105,46 @@ class CalendarViewModel: ObservableObject {
         isLoading = true
         defer { isLoading = false }
         
-        // Load current month and adjacent months
-        let current = Date()
-        if let previousMonth = calendar.date(byAdding: .month, value: -1, to: current),
-           let nextMonth = calendar.date(byAdding: .month, value: 1, to: current) {
-            await loadDreamsForMonth(previousMonth)
-            await loadDreamsForMonth(current)
-            await loadDreamsForMonth(nextMonth)
-        }
+        let today = calendar.startOfDay(for: Date())
         
-        await calculateStreak()
+        // Load data for streak calculation and current view
+        let thirtyDaysAgo = calendar.date(byAdding: .day, value: -30, to: today) ?? today
+        let nextMonth = calendar.date(byAdding: .month, value: 1, to: today) ?? today
+        
+        do {
+            // Single query for all needed data
+            let dreams = try await dreamService.getDreamsForDateRange(
+                start: thirtyDaysAgo,
+                end: nextMonth
+            )
+            
+            // Calculate streak
+            let streak = calculateStreakFromDreams(dreams: dreams, today: today)
+            
+            // Group dreams by date for the calendar view
+            var countByDate: [Date: Int] = [:]
+            for dream in dreams {
+                let normalizedDate = calendar.startOfDay(for: dream.dreamDate)
+                countByDate[normalizedDate, default: 0] += 1
+            }
+            
+            // Update all state at once
+            await MainActor.run {
+                self.dreamCountByDate = countByDate
+                self.currentStreak = streak
+                self.lastStreakCalculation = today
+                self.cachedStreak = streak
+                
+                // Mark relevant months as loaded
+                var currentDate = thirtyDaysAgo
+                while currentDate <= nextMonth {
+                    loadedDateRanges.insert(monthKey(currentDate))
+                    currentDate = calendar.date(byAdding: .month, value: 1, to: currentDate) ?? nextMonth
+                }
+            }
+        } catch {
+            self.error = error
+        }
     }
     
     func showLibraryForDate(_ date: Date) {

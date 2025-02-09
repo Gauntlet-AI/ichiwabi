@@ -42,6 +42,8 @@ final class HomeViewModel: ObservableObject {
     
     private var dreamService: DreamService?
     private let calendar = Calendar.current
+    private var lastStreakCalculation: Date?
+    private var cachedStreak: Int = 0
     
     init() {
         // Listen for dream updates
@@ -76,73 +78,71 @@ final class HomeViewModel: ObservableObject {
         defer { isLoading = false }
         
         do {
-            // Load recent dreams (last 7 days)
-            let endDate = Date()
-            let startDate = calendar.date(byAdding: .day, value: -7, to: endDate) ?? endDate
+            // Load recent dreams and calculate streak in a single operation
+            let today = calendar.startOfDay(for: Date())
+            let sevenDaysAgo = calendar.date(byAdding: .day, value: -7, to: today) ?? today
             
+            // Get dreams for the past 7 days plus any additional days needed for streak
+            let thirtyDaysAgo = calendar.date(byAdding: .day, value: -30, to: today) ?? today
             let dreams = try await dreamService.getDreamsForDateRange(
-                start: startDate,
-                end: endDate
+                start: thirtyDaysAgo,
+                end: today
             )
             
-            await MainActor.run {
-                self.recentDreams = dreams.sorted { $0.dreamDate > $1.dreamDate }
+            // Process dreams and calculate streak
+            let sortedDreams = dreams.sorted { $0.dreamDate > $1.dreamDate }
+            let recentDreams = sortedDreams.filter { dream in
+                dream.dreamDate >= sevenDaysAgo && dream.dreamDate <= today
             }
             
-            // Calculate current streak
-            await calculateStreak()
+            // Calculate streak from the fetched dreams
+            let streak = calculateStreakFromDreams(dreams: sortedDreams, today: today)
+            
+            await MainActor.run {
+                self.recentDreams = recentDreams
+                self.currentStreak = streak
+                self.lastStreakCalculation = today
+                self.cachedStreak = streak
+            }
         } catch {
             self.error = .loadFailed(error)
         }
     }
     
-    private func calculateStreak() async {
-        guard let dreamService = dreamService else {
-            error = .serviceNotInitialized
-            return
+    private func calculateStreakFromDreams(dreams: [Dream], today: Date) -> Int {
+        // If we have a cached streak from today, use it
+        if let lastCalculation = lastStreakCalculation,
+           calendar.isDate(lastCalculation, inSameDayAs: today) {
+            return cachedStreak
         }
         
-        let today = calendar.startOfDay(for: Date())
-        var currentDate = calendar.date(byAdding: .day, value: -1, to: today)! // Start from yesterday
         var streakCount = 0
-        
-        // First check if there's a dream for today
-        let todayDreams = try? await dreamService.getDreamsForDateRange(
-            start: today,
-            end: today
+        var currentDate = today
+        let dreamsGroupedByDate = Dictionary(
+            grouping: dreams,
+            by: { calendar.startOfDay(for: $0.dreamDate) }
         )
         
-        if let todayDreams = todayDreams, !todayDreams.isEmpty {
+        // Check if there's a dream for today
+        if dreamsGroupedByDate[today] != nil {
             streakCount += 1
         }
         
-        // Then check previous days
+        // Check previous days
         while true {
-            do {
-                let dreams = try await dreamService.getDreamsForDateRange(
-                    start: currentDate,
-                    end: currentDate
-                )
-                
-                if dreams.isEmpty {
-                    break
-                }
-                
-                streakCount += 1
-                
-                guard let previousDay = calendar.date(byAdding: .day, value: -1, to: currentDate) else {
-                    break
-                }
-                currentDate = previousDay
-            } catch {
-                self.error = .streakCalculationFailed(error)
+            guard let previousDay = calendar.date(byAdding: .day, value: -1, to: currentDate) else {
                 break
             }
+            
+            if dreamsGroupedByDate[previousDay] == nil {
+                break
+            }
+            
+            streakCount += 1
+            currentDate = previousDay
         }
         
-        await MainActor.run {
-            self.currentStreak = streakCount
-        }
+        return streakCount
     }
     
     func startRecording() {

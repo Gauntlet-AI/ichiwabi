@@ -1,17 +1,17 @@
 {
   "images" : [
     {
-      "filename" : "load-screen.png",
+      "filename" : "yorutabi-landing-page.png",
       "idiom" : "universal",
       "scale" : "1x"
     },
     {
-      "filename" : "load-screen 1.png",
+      "filename" : "yorutabi-landing-page 1.png",
       "idiom" : "universal",
       "scale" : "2x"
     },
     {
-      "filename" : "load-screen 2.png",
+      "filename" : "yorutabi-landing-page 2.png",
       "idiom" : "universal",
       "scale" : "3x"
     }

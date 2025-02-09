@@ -3,6 +3,8 @@ import AVKit
 import UIKit
 import UniformTypeIdentifiers
 import SwiftData
+import FirebaseFirestore
+import FirebaseStorage
 
 struct DreamPlaybackView: View {
     let dream: Dream
@@ -50,7 +52,9 @@ struct DreamPlaybackView: View {
                     }
                 }
                 .onAppear {
-                    setupPlayer()
+                    Task {
+                        await setupPlayer()
+                    }
                 }
                 .onDisappear {
                     player?.pause()
@@ -145,212 +149,146 @@ struct DreamPlaybackView: View {
         }
     }
     
-    private func setupPlayer() {
-        Task {
-            isLoading = true
-            defer { isLoading = false }
-            
-            do {
-                print("\n📼 ==================== DREAM PLAYBACK ====================")
-                print("📼 Setting up video player for dream: \(dream.dreamId)")
-                print("📼 Dream details:")
-                print("📼 - Title: \(dream.title)")
-                print("📼 - User ID: \(dream.userId)")
-                print("📼 - Local path: \(dream.localVideoPath ?? "none")")
-                print("📼 - Video URL: \(dream.videoURL)")
-                
-                // First try to load from local storage
-                if let localPath = dream.localVideoPath,
-                   let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
-                    // Construct full path including dreams/userId subdirectories
-                    let fullPath = "dreams/\(dream.userId)/\(localPath)"
-                    let localURL = documentsPath.appendingPathComponent(fullPath)
-                    print("📼 Checking for cached video at: \(localURL.path)")
-                    print("📼 Full path structure:")
-                    print("📼 - Documents path: \(documentsPath.path)")
-                    print("📼 - Relative path: \(fullPath)")
-                    print("📼 - Final URL: \(localURL.path)")
-                    
-                    // Check if parent directory exists
-                    let parentDir = localURL.deletingLastPathComponent()
-                    let dirExists = FileManager.default.fileExists(atPath: parentDir.path)
-                    print("📼 Parent directory exists: \(dirExists)")
-                    
-                    if FileManager.default.fileExists(atPath: localURL.path) {
-                        print("📼 Found cached video, setting up player")
-                        
-                        // Create asset and get duration
-                        let asset = AVAsset(url: localURL)
-                        let duration = try await asset.load(.duration).seconds
-                        print("📼 Video duration: \(duration) seconds")
-                        
-                        // Create player item with the asset
-                        let playerItem = AVPlayerItem(asset: asset)
-                        
-                        await MainActor.run {
-                            player = AVPlayer(playerItem: playerItem)
-                            
-                            // Set initial position to trim start
-                            if dream.trimStartTime > 0 {
-                                player?.seek(to: CMTime(seconds: dream.trimStartTime, preferredTimescale: 600))
-                            }
-                            
-                            // Set up playback observation for trim points
-                            player?.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main) { [weak player] time in
-                                let currentTime = time.seconds
-                                
-                                // If we've reached the trim end point or the video end
-                                if dream.trimEndTime > 0 && currentTime >= dream.trimEndTime {
-                                    // Loop back to trim start
-                                    player?.seek(to: CMTime(seconds: dream.trimStartTime, preferredTimescale: 600))
-                                    player?.play()
-                                } else if dream.trimEndTime == 0 && currentTime >= duration {
-                                    // If no trim end point, loop at video end
-                                    player?.seek(to: .zero)
-                                    player?.play()
-                                }
-                            }
-                            
-                            player?.play()
-                        }
-                        print("📼 Player setup complete")
-                        print("📼 ==================== END ====================\n")
-                        return
-                    } else {
-                        print("⚠️ Local path exists but file not found: \(localURL.path)")
-                        // Clear the local path since the file is missing
-                        dream.localVideoPath = nil
-                        try modelContext.save()
-                    }
-                } else {
-                    print("📼 No local video path available")
-                }
-                
-                // If no local video or file was missing, download it
-                print("📼 Attempting to download video from cloud")
-                print("📼 Video URL: \(dream.videoURL)")
-                
-                try await dreamSyncService.loadVideoForDream(dream)
-                
-                // After download, verify we have a valid local path and file
-                if let localPath = dream.localVideoPath,
-                   let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
-                    // Construct full path including dreams/userId subdirectories
-                    let fullPath = "dreams/\(dream.userId)/\(localPath)"
-                    let localURL = documentsPath.appendingPathComponent(fullPath)
-                    print("📼 Full path after download: \(fullPath)")
-                    print("📼 Checking downloaded file:")
-                    print("📼 - Local URL: \(localURL.path)")
-                    
-                    // Check parent directory
-                    let parentDir = localURL.deletingLastPathComponent()
-                    let dirExists = FileManager.default.fileExists(atPath: parentDir.path)
-                    print("📼 Parent directory exists: \(dirExists)")
-                    
-                    // Double check the file exists after download
-                    if FileManager.default.fileExists(atPath: localURL.path) {
-                        print("📼 Setting up player with downloaded video at: \(localURL.path)")
-                        
-                        // Create asset and get duration
-                        let asset = AVAsset(url: localURL)
-                        let duration = try await asset.load(.duration).seconds
-                        print("📼 Video duration: \(duration) seconds")
-                        
-                        // Create player item with the asset
-                        let playerItem = AVPlayerItem(asset: asset)
-                        
-                        await MainActor.run {
-                            player = AVPlayer(playerItem: playerItem)
-                            
-                            // Set initial position to trim start
-                            if dream.trimStartTime > 0 {
-                                player?.seek(to: CMTime(seconds: dream.trimStartTime, preferredTimescale: 600))
-                            }
-                            
-                            // Set up playback observation for trim points
-                            player?.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main) { [weak player] time in
-                                let currentTime = time.seconds
-                                
-                                // If we've reached the trim end point or the video end
-                                if dream.trimEndTime > 0 && currentTime >= dream.trimEndTime {
-                                    // Loop back to trim start
-                                    player?.seek(to: CMTime(seconds: dream.trimStartTime, preferredTimescale: 600))
-                                    player?.play()
-                                } else if dream.trimEndTime == 0 && currentTime >= duration {
-                                    // If no trim end point, loop at video end
-                                    player?.seek(to: .zero)
-                                    player?.play()
-                                }
-                            }
-                            
-                            player?.play()
-                        }
-                        print("📼 Player setup complete")
-                        print("📼 ==================== END ====================\n")
-                    } else {
-                        print("⚠️ Downloaded file not found at: \(localURL.path)")
-                        throw NSError(domain: "DreamPlayback", code: -3, userInfo: [NSLocalizedDescriptionKey: "Downloaded video file not found"])
-                    }
-                } else {
-                    print("⚠️ No local path after download")
-                    throw NSError(domain: "DreamPlayback", code: -2, userInfo: [NSLocalizedDescriptionKey: "Video download succeeded but local path is missing"])
-                }
-            } catch {
-                print("\n❌ ==================== ERROR ====================")
-                print("❌ Failed to load video: \(error)")
-                let nsError = error as NSError
-                print("❌ Error details:")
-                print("❌ - Domain: \(nsError.domain)")
-                print("❌ - Code: \(nsError.code)")
-                print("❌ - Description: \(nsError.localizedDescription)")
-                print("❌ - User Info: \(nsError.userInfo)")
-                print("❌ ==================== END ====================\n")
-                await MainActor.run {
-                    errorMessage = "Failed to load video: \(error.localizedDescription)"
-                }
-            }
-        }
-    }
-    
-    private func prepareAndShare() async {
-        guard let localPath = dream.localVideoPath,
-              let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            print("⚠️ Cannot share: missing local path or documents directory")
-            return
-        }
-        
-        // Construct full path including dreams/userId subdirectories
-        let fullPath = "dreams/\(dream.userId)/\(localPath)"
-        let sourceURL = documentsPath.appendingPathComponent(fullPath)
-        print("📤 Preparing to share video from: \(sourceURL.path)")
-        
-        let tempDir = FileManager.default.temporaryDirectory
-        let tempURL = tempDir.appendingPathComponent("dream-share-\(UUID().uuidString).mp4")
+    private func setupPlayer() async {
+        isLoading = true
+        defer { isLoading = false }
         
         do {
-            // Verify source file exists
-            guard FileManager.default.fileExists(atPath: sourceURL.path) else {
-                print("⚠️ Source file not found at: \(sourceURL.path)")
-                return
+            print("\n📼 ==================== DREAM PLAYBACK ====================")
+            print("📼 Setting up video player for dream: \(dream.dreamId)")
+            print("📼 Dream details:")
+            print("📼 - Title: \(dream.title)")
+            print("📼 - User ID: \(dream.userId)")
+            print("📼 - Local path: \(dream.localVideoPath ?? "none")")
+            print("📼 - Video URL: \(dream.videoURL)")
+            
+            // First try to load from local storage
+            if let localPath = dream.localVideoPath,
+               let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+                // Construct full path including dreams/userId subdirectories
+                let fullPath = "dreams/\(dream.userId)/\(localPath)"
+                let localURL = documentsPath.appendingPathComponent(fullPath)
+                print("📼 Checking for cached video at: \(localURL.path)")
+                
+                if FileManager.default.fileExists(atPath: localURL.path) {
+                    print("📼 Found cached video, setting up player")
+                    await setupPlayerWithURL(localURL)
+                    return
+                } else {
+                    print("⚠️ Local path exists but file not found: \(localURL.path)")
+                    // Clear the local path since the file is missing
+                    dream.localVideoPath = nil
+                    try modelContext.save()
+                }
             }
             
-            // Copy file to temporary directory for sharing
-            try FileManager.default.copyItem(at: sourceURL, to: tempURL)
+            // If no local video or file was missing, download it
+            print("📼 Attempting to download video from cloud")
+            try await dreamSyncService.loadVideoForDream(dream)
             
-            // Update state on main thread
-            await MainActor.run {
-                temporaryShareURL = tempURL
-                isSharePresented = true
+            // After download, verify we have a valid local path and file
+            if let localPath = dream.localVideoPath,
+               let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+                let fullPath = "dreams/\(dream.userId)/\(localPath)"
+                let localURL = documentsPath.appendingPathComponent(fullPath)
+                print("📼 Full path after download: \(fullPath)")
+                
+                if FileManager.default.fileExists(atPath: localURL.path) {
+                    print("📼 Setting up player with downloaded video")
+                    await setupPlayerWithURL(localURL)
+                } else {
+                    throw NSError(domain: "DreamPlayback", code: -3, userInfo: [NSLocalizedDescriptionKey: "Downloaded video file not found"])
+                }
+            } else {
+                throw NSError(domain: "DreamPlayback", code: -2, userInfo: [NSLocalizedDescriptionKey: "Video download succeeded but local path is missing"])
             }
-            print("✅ Video prepared for sharing")
         } catch {
-            print("❌ Failed to prepare video for sharing: \(error)")
+            print("\n❌ ==================== ERROR ====================")
+            print("❌ Failed to load video: \(error)")
             let nsError = error as NSError
             print("❌ Error details:")
             print("❌ - Domain: \(nsError.domain)")
             print("❌ - Code: \(nsError.code)")
             print("❌ - Description: \(nsError.localizedDescription)")
             print("❌ - User Info: \(nsError.userInfo)")
+            print("❌ ==================== END ====================\n")
+            errorMessage = "Failed to load video: \(error.localizedDescription)"
+        }
+    }
+    
+    private func setupPlayerWithURL(_ url: URL) async {
+        // Create asset and get duration
+        let asset = AVAsset(url: url)
+        do {
+            let duration = try await asset.load(.duration).seconds
+            print("📼 Video duration: \(duration) seconds")
+            
+            // Create player item with the asset
+            let playerItem = AVPlayerItem(asset: asset)
+            
+            await MainActor.run {
+                player = AVPlayer(playerItem: playerItem)
+                
+                // Set initial position to trim start
+                if dream.trimStartTime > 0 {
+                    player?.seek(to: CMTime(seconds: dream.trimStartTime, preferredTimescale: 600))
+                }
+                
+                // Set up playback observation for trim points
+                player?.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main) { [weak player] time in
+                    let currentTime = time.seconds
+                    
+                    // If we've reached the trim end point or the video end
+                    if dream.trimEndTime > 0 && currentTime >= dream.trimEndTime {
+                        // Loop back to trim start
+                        player?.seek(to: CMTime(seconds: dream.trimStartTime, preferredTimescale: 600))
+                        player?.play()
+                    } else if dream.trimEndTime == 0 && currentTime >= duration {
+                        // If no trim end point, loop at video end
+                        player?.seek(to: .zero)
+                        player?.play()
+                    }
+                }
+                
+                player?.play()
+            }
+            print("📼 Player setup complete")
+            print("📼 ==================== END ====================\n")
+        } catch {
+            print("❌ Error setting up player: \(error)")
+            errorMessage = "Failed to setup video player: \(error.localizedDescription)"
+        }
+    }
+    
+    private func prepareAndShare() async {
+        guard let localPath = dream.localVideoPath,
+              let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            errorMessage = "Video file not found"
+            return
+        }
+        
+        let fullPath = "dreams/\(dream.userId)/\(localPath)"
+        let localURL = documentsPath.appendingPathComponent(fullPath)
+        
+        guard FileManager.default.fileExists(atPath: localURL.path) else {
+            errorMessage = "Video file not found at expected location"
+            return
+        }
+        
+        do {
+            // Create a temporary copy for sharing
+            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).mp4")
+            try FileManager.default.copyItem(at: localURL, to: tempURL)
+            
+            // Clean up any previous temporary URL
+            if let oldURL = temporaryShareURL {
+                try? FileManager.default.removeItem(at: oldURL)
+            }
+            
+            temporaryShareURL = tempURL
+            isSharePresented = true
+        } catch {
+            errorMessage = "Failed to prepare video for sharing: \(error.localizedDescription)"
         }
     }
 }
@@ -360,53 +298,8 @@ struct ShareSheet: UIViewControllerRepresentable {
     let activityItems: [Any]
     
     func makeUIViewController(context: Context) -> UIActivityViewController {
-        // Create an array of activity items with proper type handling
-        let items = activityItems.map { item -> Any in
-            if let url = item as? URL {
-                // Create an item provider that supports multiple video formats
-                let provider = NSItemProvider()
-                
-                // Register common video types
-                let videoTypes = [
-                    UTType.mpeg4Movie.identifier,
-                    UTType.movie.identifier,
-                    "public.movie",
-                    "public.video",
-                    "public.audiovisual-content"
-                ]
-                
-                for type in videoTypes {
-                    provider.registerDataRepresentation(
-                        forTypeIdentifier: type,
-                        visibility: .all
-                    ) { completion in
-                        do {
-                            let data = try Data(contentsOf: url)
-                            completion(data, nil)
-                        } catch {
-                            completion(nil, error)
-                        }
-                        return nil
-                    }
-                }
-                
-                // Also register as a file URL for apps that prefer that
-                provider.registerFileRepresentation(
-                    forTypeIdentifier: UTType.mpeg4Movie.identifier,
-                    fileOptions: [.openInPlace],
-                    visibility: .all
-                ) { completion in
-                    completion(url, true, nil)
-                    return nil
-                }
-                
-                return provider
-            }
-            return item
-        }
-        
         let controller = UIActivityViewController(
-            activityItems: items,
+            activityItems: activityItems,
             applicationActivities: nil
         )
         

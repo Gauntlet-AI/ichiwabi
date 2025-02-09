@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import FirebaseFirestore
 
 struct DreamEditView: View {
     @Environment(\.dismiss) private var dismiss
@@ -18,9 +19,12 @@ struct DreamEditView: View {
         return sixMonthsAgo...oneMonthAhead
     }()
     
-    init(dream: Dream) {
+    private let dreamService: DreamService
+    
+    init(dream: Dream, modelContext: ModelContext) {
         self.dream = dream
         _selectedDate = State(initialValue: dream.dreamDate)
+        self.dreamService = DreamService(modelContext: modelContext, userId: dream.userId)
     }
     
     var body: some View {
@@ -114,7 +118,7 @@ struct DreamEditView: View {
         
         do {
             dream.updatedAt = Date()
-            try modelContext.save()
+            try await dreamService.updateDream(dream)
             dismiss()
         } catch {
             self.error = error
@@ -142,7 +146,7 @@ struct DreamEditView: View {
         container.mainContext.insert(dream)
         
         return NavigationStack {
-            DreamEditView(dream: dream)
+            DreamEditView(dream: dream, modelContext: container.mainContext)
                 .modelContainer(container)
                 .preferredColorScheme(.dark)
                 .background(Theme.darkNavy)

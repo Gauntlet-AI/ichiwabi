@@ -8,6 +8,7 @@ struct SettingsView: View {
     @State private var showingEditProfile = false
     @State private var showingBiometricSettings = false
     @State private var showingNotificationSettings = false
+    @State private var authService: AuthenticationService?
     
     private var currentUser: User? {
         users.first
@@ -15,87 +16,95 @@ struct SettingsView: View {
     
     var body: some View {
         NavigationStack {
-            List {
-                // Profile Section
-                Section {
-                    if let user = currentUser {
-                        HStack {
-                            if let avatarURL = user.avatarURL {
-                                AsyncImage(url: avatarURL) { image in
-                                    image
-                                        .resizable()
-                                        .scaledToFill()
-                                } placeholder: {
-                                    ProgressView()
-                                }
-                                .frame(width: 60, height: 60)
-                                .clipShape(Circle())
-                            } else {
-                                Image(systemName: "person.circle.fill")
-                                    .resizable()
+            ZStack {
+                Theme.darkNavy
+                    .ignoresSafeArea()
+                
+                List {
+                    // Profile Section
+                    Section {
+                        if let user = currentUser {
+                            HStack {
+                                if let avatarURL = user.avatarURL {
+                                    AsyncImage(url: avatarURL) { image in
+                                        image
+                                            .resizable()
+                                            .scaledToFill()
+                                    } placeholder: {
+                                        ProgressView()
+                                    }
                                     .frame(width: 60, height: 60)
-                                    .foregroundColor(.gray)
+                                    .clipShape(Circle())
+                                } else {
+                                    Image(systemName: "person.circle.fill")
+                                        .resizable()
+                                        .frame(width: 60, height: 60)
+                                        .foregroundColor(.gray)
+                                }
+                                
+                                VStack(alignment: .leading) {
+                                    Text(user.displayName)
+                                        .font(.headline)
+                                    Text("@\(user.username)")
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                }
+                                
+                                Spacer()
+                                
+                                Button {
+                                    showingEditProfile = true
+                                } label: {
+                                    Text("Edit")
+                                        .foregroundColor(.black)
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(.accentColor)
                             }
-                            
-                            VStack(alignment: .leading) {
-                                Text(user.displayName)
-                                    .font(.headline)
-                                Text("@\(user.username)")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-                            }
-                            
-                            Spacer()
-                            
-                            Button {
-                                showingEditProfile = true
-                            } label: {
-                                Text("Edit")
-                                    .foregroundColor(.black)
-                            }
-                            .buttonStyle(.bordered)
-                            .tint(.accentColor)
+                            .padding(.vertical, 4)
                         }
-                        .padding(.vertical, 4)
+                    } header: {
+                        Text("Profile")
                     }
-                } header: {
-                    Text("Profile")
-                }
-                .listRowBackground(Color.clear)
-                
-                // App Settings Section
-                Section {
-                    NavigationLink {
-                        NotificationSettingsView()
-                    } label: {
-                        Label("Notifications", systemImage: "bell.fill")
-                    }
+                    .listRowBackground(Color.clear)
                     
-                    NavigationLink {
-                        BiometricSettingsView()
-                    } label: {
-                        Label("Security", systemImage: "lock.fill")
+                    // App Settings Section
+                    Section {
+                        NavigationLink {
+                            NotificationSettingsView()
+                        } label: {
+                            Label("Notifications", systemImage: "bell.fill")
+                        }
+                        
+                        if let authService = authService {
+                            NavigationLink {
+                                BiometricSettingsView()
+                                    .environment(authService)
+                            } label: {
+                                Label("Security", systemImage: "lock.fill")
+                            }
+                        }
+                    } header: {
+                        Text("App Settings")
                     }
-                } header: {
-                    Text("App Settings")
-                }
-                .listRowBackground(Color.clear)
-                
-                // About Section
-                Section {
-                    HStack {
-                        Text("Version")
-                        Spacer()
-                        Text(Bundle.main.appVersion)
-                            .foregroundColor(.secondary)
+                    .listRowBackground(Color.clear)
+                    
+                    // About Section
+                    Section {
+                        HStack {
+                            Text("Version")
+                            Spacer()
+                            Text(Bundle.main.appVersion)
+                                .foregroundColor(.secondary)
+                        }
+                    } header: {
+                        Text("About")
                     }
-                } header: {
-                    Text("About")
+                    .listRowBackground(Color.clear)
                 }
-                .listRowBackground(Color.clear)
+                .scrollContentBackground(.hidden)
+                .background(Theme.darkNavy)
             }
-            .scrollContentBackground(.hidden)
-            .background(Color(red: 0.05, green: 0.1, blue: 0.2))
             .navigationTitle("Settings")
             .sheet(isPresented: $showingEditProfile) {
                 if let user = currentUser {
@@ -104,7 +113,13 @@ struct SettingsView: View {
                     }
                 }
             }
+            .onAppear {
+                if authService == nil {
+                    authService = AuthenticationService(context: modelContext)
+                }
+            }
         }
+        .background(Theme.darkNavy)
     }
 }
 
@@ -115,4 +130,4 @@ private extension Bundle {
         let build = infoDictionary?["CFBundleVersion"] as? String ?? "1"
         return "\(version) (\(build))"
     }
-} 
+}

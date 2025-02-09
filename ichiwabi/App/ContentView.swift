@@ -23,45 +23,66 @@ struct ContentView: View {
     }
     
     var body: some View {
-        Group {
-            if let authService = authService {
-                switch authService.authState {
-                case .loading:
-                    ProgressView()
-                        .tint(Theme.textPrimary)
-                case .signedOut:
-                    SignInView()
-                        .environment(authService)
-                case .signedIn:
-                    if let user = currentUser {
-                        if user.isProfileComplete {
-                            MainAppView(authService: authService)
-                        } else {
-                            OnboardingView(
-                                initialUsername: user.username,
-                                initialDisplayName: user.displayName
-                            )
-                        }
-                    } else {
+        ZStack {
+            Theme.darkNavy
+                .ignoresSafeArea()
+            
+            Group {
+                if let authService = authService {
+                    switch authService.authState {
+                    case .loading:
                         ProgressView()
                             .tint(Theme.textPrimary)
                             .onAppear {
-                                print("⚠️ User is signed in but no user data found")
+                                print("🔄 ContentView: Showing loading state")
                             }
+                    case .signedOut:
+                        SignInView()
+                            .environment(authService)
+                            .onAppear {
+                                print("👤 ContentView: Showing sign in view")
+                            }
+                    case .signedIn:
+                        if let user = currentUser {
+                            if user.isProfileComplete {
+                                MainAppView(authService: authService)
+                                    .onAppear {
+                                        print("✅ ContentView: Showing main app view for completed profile")
+                                    }
+                            } else {
+                                OnboardingView(
+                                    initialUsername: user.username,
+                                    initialDisplayName: user.displayName
+                                )
+                                .onAppear {
+                                    print("📝 ContentView: Showing onboarding view for incomplete profile")
+                                }
+                            }
+                        } else {
+                            ProgressView()
+                                .tint(Theme.textPrimary)
+                                .onAppear {
+                                    print("⚠️ ContentView: User is signed in but no user data found")
+                                }
+                        }
                     }
+                } else {
+                    ProgressView()
+                        .tint(Theme.textPrimary)
+                        .onAppear {
+                            print("⏳ ContentView: Initial loading state - no auth service")
+                        }
                 }
-            } else {
-                ProgressView()
-                    .tint(Theme.textPrimary)
             }
         }
         .onAppear {
+            print("🚀 ContentView: View appeared")
             if authService == nil {
+                print("🔐 ContentView: Creating new AuthenticationService")
                 authService = AuthenticationService(context: modelContext)
             }
             Theme.applyTheme()
         }
-        .background(Theme.darkNavy)
         .foregroundColor(Theme.textPrimary)
     }
 }
@@ -83,7 +104,12 @@ struct MainAppView: View {
         TabView {
             // Home Tab
             NavigationStack {
-                HomeView(userId: currentUser?.id ?? "")
+                ZStack {
+                    Theme.darkNavy
+                        .ignoresSafeArea()
+                    
+                    HomeView(userId: currentUser?.id ?? "")
+                }
             }
             .tabItem {
                 Label("Home", systemImage: "house")
@@ -115,6 +141,8 @@ struct MainAppView: View {
                 Label("Settings", systemImage: "gear")
             }
         }
+        .background(Theme.darkNavy)
+        .tint(Color.pink)
         .alert("Sign Out", isPresented: $showSignOutAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Sign Out", role: .destructive) {

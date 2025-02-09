@@ -16,6 +16,17 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
         FirebaseApp.configure()
         
+        // Apply theme at launch
+        Theme.applyTheme()
+        
+        // Configure window appearance
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+            windowScene.windows.forEach { window in
+                window.overrideUserInterfaceStyle = .dark
+                window.backgroundColor = UIColor(Theme.darkNavy)
+            }
+        }
+        
         // Request notification authorization on first launch
         Task {
             do {
@@ -55,7 +66,8 @@ struct IchiwabiApp: App {
         print("\n📱 ==================== APP INIT ====================")
         print("📱 Creating shared ModelContainer...")
         
-        let schema = Schema([
+        // Define the schema models
+        let models: [any PersistentModel.Type] = [
             User.self,
             Tag.self,
             Prompt.self,
@@ -64,15 +76,22 @@ struct IchiwabiApp: App {
             Report.self,
             Notification.self,
             Dream.self
-        ])
+        ]
+        
+        // Create the schema
+        let schema = Schema(models)
         print("📱 Schema created with models: User, Tag, Prompt, VideoResponse, Comment, Report, Notification, Dream")
         
+        // Define the store URL
+        let storeURL = URL.documentsDirectory.appending(path: "ichiwabi.store")
+        
+        // Create the configuration
         let modelConfiguration = ModelConfiguration(
             schema: schema,
-            url: URL.documentsDirectory.appending(path: "ichiwabi.store"),
+            url: storeURL,
             allowsSave: true
         )
-        print("📱 Model configuration created at: \(URL.documentsDirectory.appending(path: "ichiwabi.store").path)")
+        print("📱 Model configuration created at: \(storeURL.path)")
         
         do {
             let container = try ModelContainer(for: schema, configurations: modelConfiguration)
@@ -80,7 +99,6 @@ struct IchiwabiApp: App {
             print("📱 ==================== APP INIT END ====================\n")
             return container
         } catch {
-            // If we can't open the store, try to recover by deleting it
             print("❌ Failed to create ModelContainer: \(error)")
             
             do {
@@ -88,13 +106,13 @@ struct IchiwabiApp: App {
                 try FileManager.default.removeItem(at: modelConfiguration.url)
                 print("🗑️ Deleted corrupted store file")
                 
-                // Also delete any Core Data SQLite files that might exist
-                let storeURL = URL.documentsDirectory.appending(path: "default.store")
+                // Clean up any Core Data SQLite files
+                let sqliteStoreURL = URL.documentsDirectory.appending(path: "default.store")
                 let sqliteFiles = [
-                    storeURL,
-                    storeURL.appendingPathExtension("sqlite"),
-                    storeURL.appendingPathExtension("sqlite-shm"),
-                    storeURL.appendingPathExtension("sqlite-wal")
+                    sqliteStoreURL,
+                    sqliteStoreURL.appendingPathExtension("sqlite"),
+                    sqliteStoreURL.appendingPathExtension("sqlite-shm"),
+                    sqliteStoreURL.appendingPathExtension("sqlite-wal")
                 ]
                 
                 for url in sqliteFiles {
@@ -102,11 +120,11 @@ struct IchiwabiApp: App {
                     print("🗑️ Attempted to delete Core Data file: \(url.lastPathComponent)")
                 }
                 
-                // Try to create a new store
-                let container = try ModelContainer(for: schema, configurations: modelConfiguration)
+                // Create a new container
+                let newContainer = try ModelContainer(for: schema, configurations: modelConfiguration)
                 print("✅ Recovery successful - new ModelContainer created")
                 print("📱 ==================== APP INIT END ====================\n")
-                return container
+                return newContainer
             } catch {
                 print("❌ Recovery failed: \(error)")
                 print("📱 ==================== APP INIT END ====================\n")
@@ -115,50 +133,75 @@ struct IchiwabiApp: App {
         }
     }()
     
+    // Helper view to handle notifications and recording
+    private struct MainContentView: View {
+        @ObservedObject var notificationService: NotificationService
+        @Binding var showingRecorder: Bool
+        let syncViewModel: SyncViewModel
+        
+        var body: some View {
+            ZStack {
+                Theme.darkNavy
+                    .ignoresSafeArea()
+                
+                ContentView()
+                    .onChange(of: notificationService.lastNotificationAction) { oldValue, newValue in
+                        if newValue == .recordDream {
+                            showingRecorder = true
+                            notificationService.lastNotificationAction = nil
+                        }
+                    }
+                    .fullScreenCover(isPresented: $showingRecorder) {
+                        if let userId = Auth.auth().currentUser?.uid {
+                            DreamRecorderView(userId: userId)
+                        }
+                    }
+            }
+            .environmentObject(syncViewModel)
+        }
+    }
+    
     var body: some Scene {
         WindowGroup {
-            Group {
-                if let syncViewModel = syncViewModel {
-                    ContentView()
-                        .onChange(of: notificationService.lastNotificationAction) { oldValue, newValue in
-                            if newValue == .recordDream {
-                                showingRecorder = true
-                                // Reset the action after handling
-                                notificationService.lastNotificationAction = nil
-                            }
-                        }
-                        .fullScreenCover(isPresented: $showingRecorder) {
-                            if let userId = Auth.auth().currentUser?.uid {
-                                DreamRecorderView(userId: userId)
-                            }
-                        }
-                        .environmentObject(syncViewModel)
-                } else {
-                    ProgressView()
+            ZStack {
+                Theme.darkNavy
+                    .ignoresSafeArea()
+                
+                Group {
+                    if let syncViewModel = syncViewModel {
+                        MainContentView(
+                            notificationService: notificationService,
+                            showingRecorder: $showingRecorder,
+                            syncViewModel: syncViewModel
+                        )
+                    } else {
+                        ProgressView()
+                    }
                 }
+                .modelContainer(sharedModelContainer)
+                .preferredColorScheme(.dark)
+                .tint(Color.pink)
             }
-            .modelContainer(sharedModelContainer)
-            .preferredColorScheme(.dark)
-            .background(Color(red: 0.05, green: 0.1, blue: 0.2))
-            .tint(.white)
             .task {
-                // Initialize SyncViewModel here
-                if syncViewModel == nil {
-                    syncViewModel = SyncViewModel(modelContext: sharedModelContainer.mainContext)
-                }
-                // Start sync when app launches if user is logged in
-                if Auth.auth().currentUser != nil {
-                    await syncViewModel?.syncDreams()
-                }
+                await initializeAndSync()
             }
             .onChange(of: Auth.auth().currentUser) { oldValue, newValue in
-                // Sync when user logs in
                 if newValue != nil {
                     Task {
                         await syncViewModel?.syncDreams()
                     }
                 }
             }
+        }
+    }
+    
+    // Helper function to initialize and sync
+    private func initializeAndSync() async {
+        if syncViewModel == nil {
+            syncViewModel = SyncViewModel(modelContext: sharedModelContainer.mainContext)
+        }
+        if Auth.auth().currentUser != nil {
+            await syncViewModel?.syncDreams()
         }
     }
 }

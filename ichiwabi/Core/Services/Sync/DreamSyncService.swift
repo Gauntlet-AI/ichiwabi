@@ -26,7 +26,6 @@ enum DreamSyncError: LocalizedError {
 @MainActor
 class DreamSyncService {
     private let modelContext: ModelContext
-    private let db: Firestore
     private let videoService = VideoUploadService()
     
     init(modelContext: ModelContext) {
@@ -34,16 +33,7 @@ class DreamSyncService {
         print("🔄 Initializing DreamSyncService")
         print("🔄 ModelContext: \(modelContext)")
         print("🔄 Container: \(String(describing: modelContext.container))")
-        print("🔄 Schema: \(String(describing: modelContext.container.schema))")
-        print("🔄 ==================== DREAM SYNC SERVICE INIT END ====================\n")
-        
         self.modelContext = modelContext
-        self.db = Firestore.firestore()
-        
-        // Configure Firestore settings
-        let settings = FirestoreSettings()
-        settings.cacheSettings = PersistentCacheSettings()
-        self.db.settings = settings
     }
     
     private func fetchLocalDreams(userId: String? = nil) throws -> [Dream] {
@@ -87,7 +77,7 @@ class DreamSyncService {
         
         // Fetch from Firestore first
         print("🔄 Fetching from Firestore")
-        let dreamsRef = db.collection("dreams")
+        let dreamsRef = Firestore.firestore().collection("dreams")
             .whereField("userId", isEqualTo: userId)
         
         do {

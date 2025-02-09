@@ -20,59 +20,65 @@ struct CalendarView: View {
     
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                // Header with streak
-                HStack {
-                    Text("Dream Calendar")
-                        .font(.title)
-                        .bold()
-                    Spacer()
+            ZStack {
+                Theme.darkNavy
+                    .ignoresSafeArea()
+                
+                VStack(spacing: 0) {
+                    // Header with streak
                     HStack {
-                        Image(systemName: "flame.fill")
-                            .foregroundColor(.orange)
-                        Text("\(viewModel.currentStreak) day streak")
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(Color.orange.opacity(0.1))
-                    .cornerRadius(16)
-                }
-                .padding()
-                
-                // Month navigation
-                HStack {
-                    Button(action: previousMonth) {
-                        Image(systemName: "chevron.left")
-                            .font(.title2)
-                            .foregroundColor(.accentColor)
+                        Text("Dream Calendar")
+                            .font(.title)
+                            .bold()
+                        Spacer()
+                        HStack {
+                            Image(systemName: "flame.fill")
+                                .foregroundColor(.orange)
+                            Text("\(viewModel.currentStreak) day streak")
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color.orange.opacity(0.1))
+                        .cornerRadius(16)
                     }
                     .padding()
                     
-                    Spacer()
-                    
-                    Text(currentMonth.formatted(.dateTime.month(.wide).year()))
-                        .font(.title2)
-                        .bold()
-                    
-                    Spacer()
-                    
-                    Button(action: nextMonth) {
-                        Image(systemName: "chevron.right")
+                    // Month navigation
+                    HStack {
+                        Button(action: previousMonth) {
+                            Image(systemName: "chevron.left")
+                                .font(.title2)
+                                .foregroundColor(.accentColor)
+                        }
+                        .padding()
+                        
+                        Spacer()
+                        
+                        Text(currentMonth.formatted(.dateTime.month(.wide).year()))
                             .font(.title2)
-                            .foregroundColor(.accentColor)
+                            .bold()
+                        
+                        Spacer()
+                        
+                        Button(action: nextMonth) {
+                            Image(systemName: "chevron.right")
+                                .font(.title2)
+                                .foregroundColor(.accentColor)
+                        }
+                        .padding()
                     }
-                    .padding()
+                    .padding(.horizontal)
+                    
+                    // Calendar content
+                    MonthView(
+                        month: currentMonth,
+                        selectedDate: $selectedDate,
+                        getDreamCount: viewModel.getDreamCount,
+                        viewModel: viewModel
+                    )
+                    .padding(.top)
                 }
-                .padding(.horizontal)
-                
-                // Calendar content
-                MonthView(
-                    month: currentMonth,
-                    selectedDate: $selectedDate,
-                    getDreamCount: viewModel.getDreamCount,
-                    viewModel: viewModel
-                )
-                .padding(.top)
+                .background(Theme.darkNavy)
             }
             .onChange(of: currentMonth) { oldValue, newValue in
                 // Only load if month actually changed
@@ -100,6 +106,7 @@ struct CalendarView: View {
                 await viewModel.refreshData()
             }
         }
+        .background(Theme.darkNavy)
     }
     
     private func previousMonth() {
@@ -152,15 +159,15 @@ private struct MonthView: View {
                     DayCell(
                         date: date,
                         isSelected: calendar.isDate(date, inSameDayAs: selectedDate),
-                        dreamCount: getDreamCount(date)
+                        dreamCount: getDreamCount(date),
+                        onTap: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                selectedDate = date
+                            }
+                            viewModel.showLibraryForDate(date)
+                        }
                     )
                     .frame(width: daySize, height: daySize)
-                    .onTapGesture {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            selectedDate = date
-                        }
-                        viewModel.showLibraryForDate(date)
-                    }
                 }
             }
         }
@@ -173,6 +180,8 @@ private struct DayCell: View {
     let date: Date
     let isSelected: Bool
     let dreamCount: Int
+    @State private var isPressed = false
+    let onTap: () -> Void
     
     var body: some View {
         VStack(spacing: 4) {
@@ -192,8 +201,44 @@ private struct DayCell: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(isSelected ? Color.blue.opacity(0.2) : Color.clear)
+        .background(
+            ZStack {
+                // Selection background
+                if isSelected {
+                    Color.blue.opacity(0.2)
+                }
+                
+                // Tap feedback overlay
+                Color.white
+                    .opacity(isPressed ? 0.3 : 0)
+            }
+        )
         .cornerRadius(8)
+        .shadow(color: .black.opacity(isPressed ? 0.1 : 0.2), 
+               radius: isPressed ? 2 : 4, 
+               x: 0, 
+               y: isPressed ? 1 : 2)
+        .scaleEffect(isPressed ? 0.80 : 1.0)
+        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isPressed)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    if !isPressed {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                            isPressed = true
+                        }
+                        UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+                    }
+                }
+                .onEnded { _ in
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                        isPressed = false
+                    }
+                    print("📅 Calendar day tapped: \(date)")
+                    onTap()
+                }
+        )
     }
 }
 
