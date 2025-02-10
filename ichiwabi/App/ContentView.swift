@@ -95,13 +95,14 @@ struct MainAppView: View {
     @State private var showError = false
     @State private var errorMessage = ""
     @State private var isSaving = false
+    @State private var selectedTab = 0
     
     private var currentUser: User? {
         users.first
     }
     
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             // Home Tab
             NavigationStack {
                 ZStack {
@@ -112,8 +113,12 @@ struct MainAppView: View {
                 }
             }
             .tabItem {
-                Label("Home", systemImage: "house")
+                Label("Home", systemImage: "plus.circle.fill")
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(Color(red: 131/255, green: 125/255, blue: 242/255), Color(red: 255/255, green: 204/255, blue: 255/255))
+
             }
+            .tag(0)
             
             // Calendar Tab
             NavigationStack {
@@ -123,15 +128,35 @@ struct MainAppView: View {
             }
             .tabItem {
                 Label("Calendar", systemImage: "calendar")
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(Color(red: 255/255, green: 204/255, blue: 255/255), Color(red: 131/255, green: 125/255, blue: 242/255))
+
             }
+            .tag(1)
+            
+            // AI Tab
+            NavigationStack {
+                AIHomeView()
+            }
+            .tabItem {
+                Image(systemName: "star.bubble")
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(Color(red: 131/255, green: 125/255, blue: 242/255), Color(red: 255/255, green: 204/255, blue: 255/255))
+                Text("Jung")
+            }
+            .tag(2)
             
             // Library Tab
             NavigationStack {
                 LibraryView(filterDate: Date())
             }
             .tabItem {
-                Label("Library", systemImage: "books.vertical")
+                Label("Dreams", systemImage: "smoke")
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(Color(red: 255/255, green: 204/255, blue: 255/255), Color(red: 131/255, green: 125/255, blue: 242/255))
+
             }
+            .tag(3)
             
             // Profile Tab
             NavigationStack {
@@ -139,7 +164,11 @@ struct MainAppView: View {
             }
             .tabItem {
                 Label("Settings", systemImage: "gear")
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(Color(red: 255/255, green: 204/255, blue: 255/255), Color(red: 131/255, green: 125/255, blue: 242/255))
+
             }
+            .tag(4)
         }
         .background(Theme.darkNavy)
         .tint(Color.pink)

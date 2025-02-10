@@ -19,14 +19,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Apply theme at launch
         Theme.applyTheme()
         
-        // Configure window appearance
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-            windowScene.windows.forEach { window in
-                window.overrideUserInterfaceStyle = .dark
-                window.backgroundColor = UIColor(Theme.darkNavy)
-            }
-        }
-        
         // Request notification authorization on first launch
         Task {
             do {
@@ -37,6 +29,26 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         }
         
         return true
+    }
+    
+    func applicationDidEnterBackground(_ application: UIApplication) {
+        // Sign out when app enters background
+        try? Auth.auth().signOut()
+        
+        // Clear any stored credentials
+        if let bundleID = Bundle.main.bundleIdentifier {
+            UserDefaults.standard.removePersistentDomain(forName: bundleID)
+        }
+    }
+    
+    func applicationDidBecomeActive(_ application: UIApplication) {
+        // Configure window appearance after launch
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+            windowScene.windows.forEach { window in
+                window.overrideUserInterfaceStyle = .dark
+                window.backgroundColor = UIColor(Theme.darkNavy)
+            }
+        }
     }
     
     // Handle remote notification registration

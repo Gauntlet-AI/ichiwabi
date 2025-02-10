@@ -133,6 +133,45 @@ private struct MonthView: View {
     private let daysInWeek = 7
     private let daySize: CGFloat = 40
     
+    private var weeks: [[Date?]] {
+        let monthInterval = calendar.dateInterval(of: .month, for: month)!
+        let monthFirstWeek = calendar.dateInterval(of: .weekOfMonth, for: monthInterval.start)!
+        let monthLastWeek = calendar.dateInterval(of: .weekOfMonth, for: monthInterval.end - 1)!
+        let monthWeeks = calendar.dateInterval(of: .month, for: month)!
+        
+        var weeks: [[Date?]] = []
+        var currentWeek: [Date?] = []
+        
+        // Start from the first day of the first week
+        var currentDate = monthFirstWeek.start
+        
+        // Fill until we reach the end of the last week
+        while currentDate < monthLastWeek.end {
+            if currentWeek.count == 7 {
+                weeks.append(currentWeek)
+                currentWeek = []
+            }
+            
+            if currentDate >= monthWeeks.start && currentDate < monthWeeks.end {
+                currentWeek.append(currentDate)
+            } else {
+                currentWeek.append(currentDate)
+            }
+            
+            currentDate = calendar.date(byAdding: .day, value: 1, to: currentDate)!
+        }
+        
+        // Add the last week if it's not empty
+        if !currentWeek.isEmpty {
+            while currentWeek.count < 7 {
+                currentWeek.append(nil)
+            }
+            weeks.append(currentWeek)
+        }
+        
+        return weeks
+    }
+    
     var body: some View {
         VStack(spacing: 8) {
             // Day of week headers
@@ -145,29 +184,32 @@ private struct MonthView: View {
                 }
             }
             
-            // Days grid
-            let days = calendar.daysInMonth(month)
-            let firstWeekday = calendar.firstWeekday(of: month)
-            
-            LazyVGrid(columns: Array(repeating: GridItem(.fixed(daySize)), count: daysInWeek), spacing: 4) {
-                ForEach(0..<firstWeekday-1, id: \.self) { _ in
-                    Color.clear
-                        .frame(width: daySize, height: daySize)
-                }
-                
-                ForEach(days, id: \.self) { date in
-                    DayCell(
-                        date: date,
-                        isSelected: calendar.isDate(date, inSameDayAs: selectedDate),
-                        dreamCount: getDreamCount(date),
-                        onTap: {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                selectedDate = date
+            // Calendar grid
+            VStack(spacing: 4) {
+                ForEach(weeks.indices, id: \.self) { weekIndex in
+                    HStack(spacing: 4) {
+                        ForEach(0..<7, id: \.self) { dayIndex in
+                            if let date = weeks[weekIndex][dayIndex] {
+                                let isCurrentMonth = calendar.isDate(date, equalTo: month, toGranularity: .month)
+                                DayCell(
+                                    date: date,
+                                    isSelected: calendar.isDate(date, inSameDayAs: selectedDate),
+                                    dreamCount: getDreamCount(date),
+                                    onTap: {
+                                        withAnimation(.easeInOut(duration: 0.2)) {
+                                            selectedDate = date
+                                        }
+                                        viewModel.showLibraryForDate(date)
+                                    }
+                                )
+                                .frame(width: daySize, height: daySize)
+                                .opacity(isCurrentMonth ? 1.0 : 0.3)
+                            } else {
+                                Color.clear
+                                    .frame(width: daySize, height: daySize)
                             }
-                            viewModel.showLibraryForDate(date)
                         }
-                    )
-                    .frame(width: daySize, height: daySize)
+                    }
                 }
             }
         }
