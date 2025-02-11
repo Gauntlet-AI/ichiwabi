@@ -2,150 +2,106 @@ import Foundation
 import SwiftUI
 import SwiftData
 
-enum HomeViewError: LocalizedError, Equatable {
-    case serviceNotInitialized
-    case loadFailed(Error)
-    case streakCalculationFailed(Error)
-    
-    var errorDescription: String? {
-        switch self {
-        case .serviceNotInitialized:
-            return "Dream service not initialized"
-        case .loadFailed(let error):
-            return "Failed to load dreams: \(error.localizedDescription)"
-        case .streakCalculationFailed(let error):
-            return "Failed to calculate streak: \(error.localizedDescription)"
-        }
-    }
-    
-    static func == (lhs: HomeViewError, rhs: HomeViewError) -> Bool {
-        switch (lhs, rhs) {
-        case (.serviceNotInitialized, .serviceNotInitialized):
-            return true
-        case (.loadFailed, .loadFailed):
-            return true
-        case (.streakCalculationFailed, .streakCalculationFailed):
-            return true
-        default:
-            return false
-        }
-    }
-}
-
 @MainActor
-final class HomeViewModel: ObservableObject {
-    @Published var recentDreams: [Dream] = []
-    @Published var currentStreak: Int = 0
+class HomeViewModel: ObservableObject {
+    @Published var showingDreamRecorder = false
+    @Published var showingAudioRecorder = false
+    @Published var currentStreak = 0
     @Published var isLoading = false
     @Published var error: HomeViewError?
-    @Published var showingDreamRecorder = false
     
-    private var dreamService: DreamService?
-    private let calendar = Calendar.current
-    private var lastStreakCalculation: Date?
-    private var cachedStreak: Int = 0
+    private let modelContext: ModelContext
+    private let userId: String
+    private let calendar: Calendar
     
-    init() {
-        // Listen for dream updates
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(refreshData),
-            name: NSNotification.Name("DismissVideoTrimmer"),
-            object: nil
-        )
-    }
-    
-    func configure(modelContext: ModelContext, userId: String) {
-        self.dreamService = DreamService(modelContext: modelContext, userId: userId)
-        Task {
-            await loadData()
-        }
-    }
-    
-    @objc func refreshData() {
-        Task {
-            await loadData()
-        }
-    }
-    
-    func loadData() async {
-        guard let dreamService = dreamService else {
-            error = .serviceNotInitialized
-            return
-        }
+    init(modelContext: ModelContext, userId: String) {
+        self.modelContext = modelContext
+        self.userId = userId
         
+        // Use the user's current calendar with their timezone
+        var calendar = Calendar.current
+        calendar.timeZone = TimeZone.current
+        self.calendar = calendar
+        
+        Task {
+            await calculateStreak()
+        }
+    }
+    
+    private func calculateStreak() async {
+        let fetchDescriptor = FetchDescriptor<Dream>(
+            sortBy: [SortDescriptor(\Dream.dreamDate, order: .reverse)]
+        )
+        
+        do {
+            let dreams = try modelContext.fetch(fetchDescriptor)
+            
+            let today = calendar.startOfDay(for: Date())
+            var streakCount = 0
+            var currentDate = today
+            
+            for dream in dreams {
+                let dreamDate = calendar.startOfDay(for: dream.dreamDate)
+                
+                // If we've missed a day, break the streak
+                if let daysBetween = calendar.dateComponents([.day], from: dreamDate, to: currentDate).day,
+                   daysBetween > 1 {
+                    break
+                }
+                
+                // If this dream is from the same day we already counted, skip it
+                if dreamDate == currentDate {
+                    continue
+                }
+                
+                // If this dream is from the previous day, increment streak and move to that day
+                if let daysBetween = calendar.dateComponents([.day], from: dreamDate, to: currentDate).day,
+                   daysBetween == 1 {
+                    streakCount += 1
+                    currentDate = dreamDate
+                }
+            }
+            
+            // Check if we have a dream for today
+            if dreams.contains(where: { calendar.startOfDay(for: $0.dreamDate) == today }) {
+                streakCount += 1
+            }
+            
+            currentStreak = streakCount
+        } catch {
+            self.error = .streakCalculationFailed(error)
+            currentStreak = 0
+        }
+    }
+    
+    func startRecording() {
+        showingAudioRecorder = true
+    }
+    
+    func handleRecordedAudio(_ url: URL, style: DreamVideoStyle) async throws {
         isLoading = true
         defer { isLoading = false }
         
         do {
-            // Load recent dreams and calculate streak in a single operation
-            let today = calendar.startOfDay(for: Date())
-            let sevenDaysAgo = calendar.date(byAdding: .day, value: -7, to: today) ?? today
-            
-            // Get dreams for the past 7 days plus any additional days needed for streak
-            let thirtyDaysAgo = calendar.date(byAdding: .day, value: -30, to: today) ?? today
-            let dreams = try await dreamService.getDreamsForDateRange(
-                start: thirtyDaysAgo,
-                end: today
+            // Create a new dream with initial state
+            let dream = Dream(
+                userId: userId,
+                title: "Processing Dream...",  // Will be updated by API
+                description: "Processing dream description...",  // Will be updated by API
+                date: Date(),
+                videoURL: url,  // Temporary URL, will be updated by API
+                localAudioPath: url.lastPathComponent,
+                videoStyle: style,
+                isProcessing: true,
+                processingProgress: 0
             )
             
-            // Process dreams and calculate streak
-            let sortedDreams = dreams.sorted { $0.dreamDate > $1.dreamDate }
-            let recentDreams = sortedDreams.filter { dream in
-                dream.dreamDate >= sevenDaysAgo && dream.dreamDate <= today
-            }
-            
-            // Calculate streak from the fetched dreams
-            let streak = calculateStreakFromDreams(dreams: sortedDreams, today: today)
-            
-            await MainActor.run {
-                self.recentDreams = recentDreams
-                self.currentStreak = streak
-                self.lastStreakCalculation = today
-                self.cachedStreak = streak
-            }
+            // Save the dream to local storage
+            modelContext.insert(dream)
+            try modelContext.save()
         } catch {
-            self.error = .loadFailed(error)
+            self.error = .other("Failed to save dream: \(error.localizedDescription)")
+            throw error
         }
-    }
-    
-    private func calculateStreakFromDreams(dreams: [Dream], today: Date) -> Int {
-        // If we have a cached streak from today, use it
-        if let lastCalculation = lastStreakCalculation,
-           calendar.isDate(lastCalculation, inSameDayAs: today) {
-            return cachedStreak
-        }
-        
-        var streakCount = 0
-        var currentDate = today
-        let dreamsGroupedByDate = Dictionary(
-            grouping: dreams,
-            by: { calendar.startOfDay(for: $0.dreamDate) }
-        )
-        
-        // Check if there's a dream for today
-        if dreamsGroupedByDate[today] != nil {
-            streakCount += 1
-        }
-        
-        // Check previous days
-        while true {
-            guard let previousDay = calendar.date(byAdding: .day, value: -1, to: currentDate) else {
-                break
-            }
-            
-            if dreamsGroupedByDate[previousDay] == nil {
-                break
-            }
-            
-            streakCount += 1
-            currentDate = previousDay
-        }
-        
-        return streakCount
-    }
-    
-    func startRecording() {
-        showingDreamRecorder = true
     }
 } 

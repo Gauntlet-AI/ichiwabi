@@ -2,6 +2,12 @@ import Foundation
 import SwiftData
 import FirebaseFirestore
 
+enum DreamVideoStyle: String, Codable {
+    case realistic
+    case animated
+    case cursed
+}
+
 @Model
 final class Dream {
     @Attribute(.unique) var dreamId: UUID
@@ -11,6 +17,7 @@ final class Dream {
     var date: Date
     var videoURL: URL
     var localVideoPath: String?
+    var localAudioPath: String?  // Path to the recorded audio file
     var createdAt: Date
     var updatedAt: Date
     var transcript: String?
@@ -19,8 +26,9 @@ final class Dream {
     var isSynced: Bool
     var lastSyncedAt: Date?
     var dreamDate: Date
-    var trimStartTime: Double = 0
-    var trimEndTime: Double = 0
+    var videoStyle: DreamVideoStyle?  // Selected video generation style
+    var isProcessing: Bool  // Whether the dream is being processed by AI
+    var processingProgress: Double  // Progress of AI processing (0-1)
     
     init(
         id: UUID = UUID(),
@@ -38,8 +46,10 @@ final class Dream {
         lastSyncedAt: Date? = nil,
         dreamDate: Date? = nil,
         localVideoPath: String? = nil,
-        trimStartTime: Double = 0,
-        trimEndTime: Double = 0
+        localAudioPath: String? = nil,
+        videoStyle: DreamVideoStyle? = nil,
+        isProcessing: Bool = false,
+        processingProgress: Double = 0
     ) {
         self.dreamId = id
         self.userId = userId
@@ -48,6 +58,7 @@ final class Dream {
         self.date = date
         self.videoURL = videoURL
         self.localVideoPath = localVideoPath
+        self.localAudioPath = localAudioPath
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.transcript = transcript
@@ -56,8 +67,9 @@ final class Dream {
         self.isSynced = isSynced
         self.lastSyncedAt = lastSyncedAt
         self.dreamDate = dreamDate ?? date
-        self.trimStartTime = trimStartTime
-        self.trimEndTime = trimEndTime
+        self.videoStyle = videoStyle
+        self.isProcessing = isProcessing
+        self.processingProgress = processingProgress
     }
 }
 
@@ -76,8 +88,8 @@ extension Dream {
             "tags": tags,
             "isSynced": isSynced,
             "dreamDate": Timestamp(date: dreamDate),
-            "trimStartTime": trimStartTime,
-            "trimEndTime": trimEndTime
+            "isProcessing": isProcessing,
+            "processingProgress": processingProgress
         ]
         
         // Add optional fields
@@ -89,6 +101,9 @@ extension Dream {
         }
         if let lastSyncedAt = lastSyncedAt {
             data["lastSyncedAt"] = Timestamp(date: lastSyncedAt)
+        }
+        if let videoStyle = videoStyle {
+            data["videoStyle"] = videoStyle.rawValue
         }
         
         return data
@@ -109,6 +124,11 @@ extension Dream {
             let dreamDateTimestamp = data["dreamDate"] as? Timestamp
         else { return nil }
         
+        var videoStyle: DreamVideoStyle?
+        if let styleString = data["videoStyle"] as? String {
+            videoStyle = DreamVideoStyle(rawValue: styleString)
+        }
+        
         return Dream(
             id: id,
             userId: userId,
@@ -124,8 +144,9 @@ extension Dream {
             isSynced: data["isSynced"] as? Bool ?? false,
             lastSyncedAt: (data["lastSyncedAt"] as? Timestamp)?.dateValue(),
             dreamDate: dreamDateTimestamp.dateValue(),
-            trimStartTime: data["trimStartTime"] as? Double ?? 0,
-            trimEndTime: data["trimEndTime"] as? Double ?? 0
+            videoStyle: videoStyle,
+            isProcessing: data["isProcessing"] as? Bool ?? false,
+            processingProgress: data["processingProgress"] as? Double ?? 0
         )
     }
 } 

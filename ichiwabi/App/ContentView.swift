@@ -113,7 +113,7 @@ struct MainAppView: View {
                 }
             }
             .tabItem {
-                Label("Home", systemImage: "plus.circle.fill")
+                Label("Record", systemImage: "plus.circle.fill")
                     .symbolRenderingMode(.palette)
                     .foregroundStyle(Color(red: 131/255, green: 125/255, blue: 242/255), Color(red: 255/255, green: 204/255, blue: 255/255))
 
@@ -142,7 +142,7 @@ struct MainAppView: View {
                 Image(systemName: "star.bubble")
                     .symbolRenderingMode(.palette)
                     .foregroundStyle(Color(red: 131/255, green: 125/255, blue: 242/255), Color(red: 255/255, green: 204/255, blue: 255/255))
-                Text("Jung")
+                Text("Chat")
             }
             .tag(2)
             

@@ -74,7 +74,7 @@ private struct SignInContentView: View {
                     .font(.largeTitle)
                     .fontWeight(.bold)
                 
-                Text("Create and share daily video responses")
+                Text("Record and Remember your Dreams")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                 

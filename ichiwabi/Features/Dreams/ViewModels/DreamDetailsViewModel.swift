@@ -100,11 +100,19 @@ class DreamDetailsViewModel: ObservableObject {
             description: transcript,
             date: Date(),
             videoURL: URL(string: cloudURL)!,
+            createdAt: Date(),
+            updatedAt: Date(),
             transcript: transcript,
+            tags: [],
+            category: nil,
+            isSynced: false,
+            lastSyncedAt: nil,
             dreamDate: dreamDate,
             localVideoPath: localURL.lastPathComponent,
-            trimStartTime: 0,
-            trimEndTime: 0
+            localAudioPath: nil,
+            videoStyle: nil,
+            isProcessing: false,
+            processingProgress: 0
         )
         
         // Save dream to local storage and sync

@@ -229,22 +229,12 @@ struct DreamPlaybackView: View {
             await MainActor.run {
                 player = AVPlayer(playerItem: playerItem)
                 
-                // Set initial position to trim start
-                if dream.trimStartTime > 0 {
-                    player?.seek(to: CMTime(seconds: dream.trimStartTime, preferredTimescale: 600))
-                }
-                
-                // Set up playback observation for trim points
+                // Set up periodic playback observation for looping
                 player?.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main) { [weak player] time in
                     let currentTime = time.seconds
                     
-                    // If we've reached the trim end point or the video end
-                    if dream.trimEndTime > 0 && currentTime >= dream.trimEndTime {
-                        // Loop back to trim start
-                        player?.seek(to: CMTime(seconds: dream.trimStartTime, preferredTimescale: 600))
-                        player?.play()
-                    } else if dream.trimEndTime == 0 && currentTime >= duration {
-                        // If no trim end point, loop at video end
+                    // Loop at video end
+                    if currentTime >= duration {
                         player?.seek(to: .zero)
                         player?.play()
                     }

@@ -27,77 +27,57 @@ struct HomeView: View {
     @MainActor
     init(userId: String, viewModel: HomeViewModel? = nil) {
         self.userId = userId
-        _viewModel = StateObject(wrappedValue: viewModel ?? HomeViewModel())
+        let container: ModelContainer
+        do {
+            container = try ModelContainer(for: Dream.self)
+        } catch {
+            fatalError("Failed to create ModelContainer: \(error)")
+        }
+        let context = ModelContext(container)
+        
+        if let existingViewModel = viewModel {
+            self._viewModel = StateObject(wrappedValue: existingViewModel)
+        } else {
+            let newViewModel = HomeViewModel(modelContext: context, userId: userId)
+            self._viewModel = StateObject(wrappedValue: newViewModel)
+        }
     }
     
     var body: some View {
-        ZStack {
-            Theme.darkNavy
-                .ignoresSafeArea()
-            
+        NavigationStack {
             mainContent
-                .navigationTitle("ｙｏｒｕｔａｂｉ")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbarBackground(.hidden, for: .navigationBar)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        HStack(spacing: 16) {
-                            Button {
-                                Task {
-                                    await syncViewModel.syncDreams()
-                                }
-                            } label: {
-                                Label("Sync", systemImage: "arrow.triangle.2.circlepath")
-                            }
-                            .disabled(syncViewModel.isSyncing)
-                            
-                            Button(role: .destructive) {
-                                showSignOutAlert = true
-                            } label: {
-                                Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                .navigationBarSetup()
+                .toolbarSetup(syncViewModel: syncViewModel, showSignOutAlert: $showSignOutAlert)
+                .alertSetup(error: $error, showError: $showError, showSignOutAlert: $showSignOutAlert, resetAppState: resetAppState)
+                .fullScreenCover(isPresented: $viewModel.showingAudioRecorder) {
+                    AudioRecordingView { url, style in
+                        Task {
+                            do {
+                                try await viewModel.handleRecordedAudio(url, style: style)
+                                viewModel.showingAudioRecorder = false
+                            } catch {
+                                self.error = .other(error.localizedDescription)
+                                showError = true
                             }
                         }
                     }
                 }
-        }
-        .overlay(loadingOverlay)
-        .onChange(of: viewModel.error, initial: false) { _, _ in
-            showError = viewModel.error != nil
-        }
-        .alert("Error", isPresented: $showError, presenting: error) { _ in
-            Button("OK", role: .cancel) { }
-        } message: { error in
-            Text(error.localizedDescription)
-        }
-        .alert("Sign Out", isPresented: $showSignOutAlert) {
-            Button("Cancel", role: .cancel) { }
-            Button("Sign Out", role: .destructive) {
-                Task {
-                    await resetAppState()
+                .sheet(item: $selectedDream) { dream in
+                    NavigationStack {
+                        DreamPlaybackView(dream: dream, modelContext: modelContext)
+                    }
                 }
-            }
-        } message: {
-            Text("Are you sure you want to sign out? This will clear all local data.")
-        }
-        .refreshable {
-            await viewModel.loadData()
-        }
-        .fullScreenCover(isPresented: $viewModel.showingDreamRecorder) {
-            if let user = currentUser {
-                NavigationStack {
-                    DreamRecorderView(userId: user.id)
+                .onChange(of: viewModel.error) { _, newError in
+                    if let newError = newError {
+                        error = .other(newError.localizedDescription)
+                        showError = true
+                    }
                 }
-            }
-        }
-        .sheet(item: $selectedDream) { dream in
-            NavigationStack {
-                DreamPlaybackView(dream: dream, modelContext: modelContext)
-            }
-        }
-        .onAppear {
-            viewModel.configure(modelContext: modelContext, userId: userId)
-            isPulsating = true
-            isGlowing = true
+                .onAppear {
+                    // Initialize animations
+                    isPulsating = true
+                    isGlowing = true
+                }
         }
     }
     
@@ -107,34 +87,38 @@ struct HomeView: View {
                 .ignoresSafeArea()
             
             VStack(spacing: 32) {
-                // Welcome Section
                 if let user = currentUser {
                     welcomeSection(user: user)
-                        .padding(.top)
+                        .padding(.horizontal)
                 }
                 
                 Spacer()
                 
-                // Large Circular Record Button
                 recordButton
+                    .padding(.vertical, 32)
                 
                 Spacer()
                 
-                // Streak Section at bottom
                 streakSection
+                    .padding(.horizontal)
                     .padding(.bottom)
             }
-            .padding()
+            .padding(.vertical)
+            
+            if viewModel.isLoading {
+                loadingOverlay
+            }
         }
     }
     
     private var loadingOverlay: some View {
-        Group {
-            if viewModel.isLoading || syncViewModel.isSyncing {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(.ultraThinMaterial)
-            }
+        ZStack {
+            Color.black.opacity(0.5)
+                .ignoresSafeArea()
+            
+            ProgressView()
+                .scaleEffect(1.5)
+                .tint(.white)
         }
     }
     
@@ -303,17 +287,64 @@ struct HomeView: View {
             showError = true
         }
     }
+}
+
+// MARK: - View Modifiers
+private extension View {
+    func navigationBarSetup() -> some View {
+        self
+            .navigationTitle("ｙｏｒｕｔａｂｉ")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.hidden, for: .navigationBar)
+    }
     
-    // Add HomeViewError enum
-    enum HomeViewError: LocalizedError {
-        case signOutFailed(String)
-        
-        var errorDescription: String? {
-            switch self {
-            case .signOutFailed(let message):
-                return "Failed to sign out: \(message)"
+    func toolbarSetup(syncViewModel: SyncViewModel, showSignOutAlert: Binding<Bool>) -> some View {
+        self.toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                HStack(spacing: 16) {
+                    Button {
+                        Task {
+                            await syncViewModel.syncDreams()
+                        }
+                    } label: {
+                        Label("Sync", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .disabled(syncViewModel.isSyncing)
+                    
+                    Button(role: .destructive) {
+                        showSignOutAlert.wrappedValue = true
+                    } label: {
+                        Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                }
             }
         }
+    }
+    
+    func alertSetup(
+        error: Binding<HomeViewError?>,
+        showError: Binding<Bool>,
+        showSignOutAlert: Binding<Bool>,
+        resetAppState: @escaping () async -> Void
+    ) -> some View {
+        self
+            .alert("Error", isPresented: showError) {
+                Button("OK", role: .cancel) { 
+                    error.wrappedValue = nil
+                }
+            } message: {
+                Text(error.wrappedValue?.localizedDescription ?? "An unknown error occurred")
+            }
+            .alert("Sign Out", isPresented: showSignOutAlert) {
+                Button("Cancel", role: .cancel) { }
+                Button("Sign Out", role: .destructive) {
+                    Task {
+                        await resetAppState()
+                    }
+                }
+            } message: {
+                Text("Are you sure you want to sign out? This will clear all local data.")
+            }
     }
 }
 
@@ -332,11 +363,10 @@ private extension HomeView {
     
     @MainActor
     static func createPreviewViewModel(modelContext: ModelContext, userId: String) -> HomeViewModel {
-        let viewModel = HomeViewModel()
-        viewModel.configure(modelContext: modelContext, userId: userId)
+        let viewModel = HomeViewModel(modelContext: modelContext, userId: userId)
         
         // Set up preview data
-        viewModel.recentDreams = [
+        let dreams = [
             Dream(
                 userId: userId,
                 title: "Flying Over Mountains",
@@ -365,45 +395,40 @@ private extension HomeView {
                 dreamDate: Calendar.current.date(byAdding: .day, value: -2, to: Date()) ?? Date()
             )
         ]
-        viewModel.currentStreak = 3
+        
+        // Insert dreams into model context
+        for dream in dreams {
+            modelContext.insert(dream)
+        }
+        
         return viewModel
     }
     
-    @MainActor
-    static func makePreview() -> some View {
-        // Create a simple user for the preview
-        let user = User(
-            id: "preview_user",
-            username: "dreamwalker",
-            displayName: "Dream Walker",
-            email: "dream@example.com"
-        )
-        
-        // Create minimal container just for the user
-        do {
-            let container = try ModelContainer(for: User.self, Dream.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
-            let context = ModelContext(container)
-            context.insert(user)
-            
-            // Create and configure the preview view model
-            let viewModel = createPreviewViewModel(modelContext: context, userId: "preview_user")
-            
-            return PreviewWrapper(content: AnyView(
-                HomeView(userId: "preview_user", viewModel: viewModel)
-                    .modelContainer(container)
-                    .environmentObject(SyncViewModel(modelContext: context))
-            ))
-        } catch {
-            return PreviewWrapper(content: AnyView(
-                Text("Preview creation failed")
-                    .foregroundColor(Theme.textPrimary)
-            ))
-        }
+    static func makePreviewContent() -> some View {
+        PreviewContentView()
     }
 }
 
-#Preview {
-    do {
+// Move preview content to a separate view
+private struct PreviewContentView: View {
+    var body: some View {
+        Group {
+            if let (container, viewModel) = try? setupPreview() {
+                NavigationStack {
+                    HomeView(userId: "preview_user", viewModel: viewModel)
+                        .modelContainer(container)
+                        .environmentObject(SyncViewModel(modelContext: ModelContext(container)))
+                        .preferredColorScheme(.dark)
+                        .background(Theme.darkNavy)
+                }
+            } else {
+                Text("Failed to create preview")
+                    .foregroundColor(Theme.textPrimary)
+            }
+        }
+    }
+    
+    private func setupPreview() throws -> (ModelContainer, HomeViewModel) {
         let container = try ModelContainer(for: User.self, Dream.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
         let context = ModelContext(container)
         
@@ -416,50 +441,15 @@ private extension HomeView {
         )
         context.insert(user)
         
-        // Create view model with sample data
-        let viewModel = HomeViewModel()
-        viewModel.recentDreams = [
-            Dream(
-                userId: "preview_user",
-                title: "Flying Over Mountains",
-                description: "I was soaring over snow-capped peaks...",
-                date: Date(),
-                videoURL: URL(string: "https://example.com/video1.mp4")!,
-                transcript: "I was soaring over snow-capped peaks, feeling the crisp wind against my face.",
-                dreamDate: Date()
-            ),
-            Dream(
-                userId: "preview_user",
-                title: "Underwater City",
-                description: "Discovered a magnificent city beneath the waves...",
-                date: Date(),
-                videoURL: URL(string: "https://example.com/video2.mp4")!,
-                transcript: "Discovered a magnificent city beneath the waves, with buildings made of coral.",
-                dreamDate: Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? Date()
-            ),
-            Dream(
-                userId: "preview_user",
-                title: "Time Travel to Ancient Egypt",
-                description: "Walking among the pyramids...",
-                date: Date(),
-                videoURL: URL(string: "https://example.com/video3.mp4")!,
-                transcript: "I found myself in ancient Egypt, watching the pyramids being built.",
-                dreamDate: Calendar.current.date(byAdding: .day, value: -2, to: Date()) ?? Date()
-            )
-        ]
-        viewModel.currentStreak = 3
+        // Create view model using the helper function
+        let viewModel = HomeView.createPreviewViewModel(modelContext: context, userId: "preview_user")
         
-        return NavigationStack {
-            HomeView(userId: "preview_user", viewModel: viewModel)
-                .modelContainer(container)
-                .environmentObject(SyncViewModel(modelContext: context))
-                .preferredColorScheme(.dark)
-                .background(Theme.darkNavy)
-        }
-    } catch {
-        return Text("Failed to create preview")
-            .foregroundColor(Theme.textPrimary)
+        return (container, viewModel)
     }
+}
+
+#Preview {
+    HomeView.makePreviewContent()
 }
 
 // Add this custom button style at the bottom of the file
@@ -468,8 +458,8 @@ struct PressButtonStyle: ButtonStyle {
     
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .onChange(of: configuration.isPressed) { _, isPressed in
-                pressAction(isPressed)
+            .onChange(of: configuration.isPressed) { oldValue, newValue in
+                pressAction(newValue)
             }
     }
 }
