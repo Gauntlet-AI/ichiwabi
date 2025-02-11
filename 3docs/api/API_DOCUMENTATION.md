@@ -3,7 +3,7 @@ I need to create the actual file. Here's how to do that:
 # Dream Analysis Chat API Documentation
 
 ## Overview
-This API provides an interface for interactive dream analysis conversations with simulated versions of Carl Jung and Sigmund Freud. The API maintains conversation state and allows for ongoing dialogue about dream interpretation.
+This API provides an interface for interactive dream analysis conversations with simulated versions of Carl Jung and Sigmund Freud. Additional features include dream title generation, speech transcription, and dream-based video generation.
 
 ## Base URL
 `https://yorutabi-api.vercel.app/`
@@ -56,6 +56,79 @@ Continues an existing conversation by sending a new message.
 }
 ```
 
+### 3. Generate Dream Title
+Generates a concise, engaging title for a dream description.
+
+**Endpoint:** `POST /generate-title`
+
+#### Request Body
+```json
+{
+    "dream": "Description of the dream"
+}
+```
+
+#### Response
+```json
+{
+    "title": "Short dream title"
+}
+```
+
+### 4. Transcribe Speech
+Transcribes an audio recording of a dream description.
+
+**Endpoint:** `POST /transcribe-speech`
+
+#### Request
+- Content-Type: `multipart/form-data`
+- Body: 
+  - `audio_file`: M4A audio file
+
+#### Response
+```json
+{
+    "transcription": "Transcribed text of the audio"
+}
+```
+
+### 5. Generate Video
+Generates a video visualization of a dream description in a specified style using Replicate's Luma-Ray model.
+
+**Endpoint:** `POST /generate-video`
+
+#### Request Body
+```json
+{
+    "dream": "Description of the dream",
+    "style": "Realistic"  // Options: "Realistic", "Animated", "Cursed"
+}
+```
+
+#### Response
+```json
+{
+    "video_url": "URL to the generated video"
+}
+```
+
+**Notes:**
+- Videos are generated in portrait orientation (9:16 aspect ratio, 720x1280)
+- Duration is fixed at 9 seconds
+- Available styles:
+  - Realistic: Photorealistic, cinematic, surreal, dreamlike visuals
+  - Animated: Beautiful, cute, Japanese animation woodblock style
+  - Cursed: Dark, unsettling, surreal, uncanny valley, hallucinogenic visuals
+- Video generation is asynchronous and may take several minutes
+- The endpoint polls the generation status until completion
+- The returned URL is a direct link to the generated video
+
+**Process:**
+1. Dream description is combined with style-specific prompts
+2. Video request is sent to Luma-Ray model
+3. Generation status is monitored until completion
+4. Final video URL is returned when ready
+
 ## Implementation Details
 
 ### ChatService Class
@@ -81,8 +154,10 @@ The API includes basic error handling for:
 
 ## Technical Notes
 - Built with FastAPI
-- Uses OpenAI's GPT-4 model
-- Requires valid OpenAI API key in environment variables
+- Uses OpenAI's GPT-4 model for chat and title generation
+- Uses OpenAI's Whisper model for speech transcription
+- Uses Replicate's Luma-Ray model for video generation
+- Requires valid API keys for OpenAI and Replicate in environment variables
 - Async implementation for better performance
 
 ## Example Usage
@@ -106,6 +181,28 @@ response = requests.post(f"http://localhost:8000/chat/{chat_id}",
         }
     ]
 )
+
+# Generate a title
+response = requests.post("http://localhost:8000/generate-title", 
+    json={
+        "dream": "I was flying over a dark forest"
+    }
+)
+
+# Transcribe speech
+with open('dream_recording.m4a', 'rb') as f:
+    files = {'audio_file': f}
+    response = requests.post("http://localhost:8000/transcribe-speech", 
+        files=files
+    )
+
+# Generate video
+response = requests.post("http://localhost:8000/generate-video",
+    json={
+        "dream": "I was flying over a dark forest",
+        "style": "Realistic"
+    }
+)
 ```
 
 ## Limitations
@@ -113,10 +210,14 @@ response = requests.post(f"http://localhost:8000/chat/{chat_id}",
 - No authentication/authorization
 - No rate limiting
 - No persistent storage
+- M4A format only for audio transcription
+- Video generation may take time to process
+- 10-second limit on generated videos
 
 ## Dependencies
 - FastAPI
 - Pydantic
 - OpenAI Python Client
 - Python-dotenv
-```
+- Python-multipart
+- Replicate

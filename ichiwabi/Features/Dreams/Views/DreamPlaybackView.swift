@@ -143,6 +143,11 @@ struct DreamPlaybackView: View {
             .disabled(isLoading)
             
             Button("Done") {
+                player?.pause()
+                player = nil
+                if let tempURL = temporaryShareURL {
+                    try? FileManager.default.removeItem(at: tempURL)
+                }
                 dismiss()
             }
             .foregroundColor(Theme.textPrimary)

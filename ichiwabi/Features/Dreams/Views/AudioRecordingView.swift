@@ -7,7 +7,20 @@ struct AudioRecordingView: View {
     @State private var selectedStyle: DreamVideoStyle?
     @State private var isGenerating = false
     @State private var showError = false
+    @State private var isTranscribing = false
+    @State private var transcribedText: String?
+    @State private var editedTranscription: String = ""
+    @State private var isGeneratingTitle = false
+    @State private var generatedTitle: String?
+    @State private var editedTitle: String = ""
+    @State private var generatedDream: Dream?
+    @State private var showDreamPlayback = false
+    @Environment(\.dismiss) private var dismiss
     
+    private let apiService = APIService()
+    private let videoProcessingService = VideoProcessingService()
+    private let authService = AuthService.shared
+    @Environment(\.modelContext) private var modelContext
     let onComplete: (URL, DreamVideoStyle) -> Void
     
     var body: some View {
@@ -15,12 +28,12 @@ struct AudioRecordingView: View {
             Theme.darkNavy
                 .ignoresSafeArea()
             
-            VStack(spacing: 24) {
+            VStack(spacing: 16) {
                 // Timer and waveform
-                VStack(spacing: 16) {
+                VStack(spacing: 12) {
                     // Timer
                     Text(timeString(from: recordedAudioURL != nil ? audioService.currentTime : audioService.recordingDuration))
-                        .font(.system(size: 48, weight: .bold, design: .monospaced))
+                        .font(.system(size: 40, weight: .bold, design: .monospaced))
                         .foregroundColor(.white)
                         .onChange(of: audioService.recordingDuration) { _, newValue in
                             print("🎤 Duration: \(newValue)")
@@ -31,21 +44,89 @@ struct AudioRecordingView: View {
                     
                     // Waveform
                     WaveformView(levels: audioService.audioLevels)
-                        .frame(height: 100)
+                        .frame(height: 80)
                         .animation(.easeInOut(duration: 0.1), value: audioService.audioLevels)
                 }
-                .padding(.top, 40)
+                .padding(.top, 20)
+                
+                if recordedAudioURL != nil {
+                    VStack(spacing: 12) {
+                        // Processing Status
+                        if isTranscribing || isGeneratingTitle {
+                            VStack(spacing: 8) {
+                                ProgressView()
+                                    .tint(.white)
+                                Text(isTranscribing ? "Transcribing your dream..." : "Generating title...")
+                                    .foregroundColor(.white)
+                                    .font(.subheadline)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        
+                        // Title Section
+                        if let title = generatedTitle {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Dream Title")
+                                    .font(.headline)
+                                    .foregroundColor(.white)
+                                
+                                TextField("Title", text: .init(
+                                    get: { editedTitle.isEmpty ? title : editedTitle },
+                                    set: { editedTitle = $0 }
+                                ))
+                                .textFieldStyle(.plain)
+                                .padding(6)
+                                .background(Color.white.opacity(0.1))
+                                .cornerRadius(8)
+                                .foregroundColor(.white)
+                                .onAppear {
+                                    if editedTitle.isEmpty {
+                                        editedTitle = title
+                                    }
+                                }
+                            }
+                            .padding(.horizontal)
+                            .transition(.opacity)
+                        }
+                        
+                        // Transcription Section
+                        if let text = transcribedText {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Your Dream Description")
+                                    .font(.headline)
+                                    .foregroundColor(.white)
+                                
+                                TextEditor(text: .init(
+                                    get: { editedTranscription.isEmpty ? text : editedTranscription },
+                                    set: { editedTranscription = $0 }
+                                ))
+                                .frame(height: 80)
+                                .padding(6)
+                                .background(Color.white.opacity(0.1))
+                                .cornerRadius(8)
+                                .foregroundColor(.white)
+                                .onAppear {
+                                    if editedTranscription.isEmpty {
+                                        editedTranscription = text
+                                    }
+                                }
+                            }
+                            .padding(.horizontal)
+                            .transition(.opacity)
+                        }
+                    }
+                }
                 
                 Spacer()
                 
-                // Style selection buttons (only show after recording)
-                if recordedAudioURL != nil {
-                    VStack(spacing: 16) {
+                // Style selection buttons (only show after transcription)
+                if recordedAudioURL != nil && !isTranscribing && transcribedText != nil {
+                    VStack(spacing: 12) {
                         Text("Select Video Style")
                             .font(.headline)
                             .foregroundColor(.white)
                         
-                        HStack(spacing: 16) {
+                        HStack(spacing: 12) {
                             StyleButton(
                                 title: "Realistic",
                                 isSelected: selectedStyle == .realistic,
@@ -68,18 +149,16 @@ struct AudioRecordingView: View {
                     }
                 }
                 
-                Spacer()
-                
                 // Control buttons
-                VStack(spacing: 24) {
+                VStack(spacing: 16) {
                     if let url = recordedAudioURL {
                         // Playback controls
-                        HStack(spacing: 40) {
+                        HStack(spacing: 32) {
                             Button {
                                 audioService.togglePlayback(url: url)
                             } label: {
                                 Image(systemName: audioService.isPlaying ? "stop.circle.fill" : "play.circle.fill")
-                                    .font(.system(size: 64))
+                                    .font(.system(size: 56))
                                     .foregroundColor(.white)
                             }
                             
@@ -90,7 +169,7 @@ struct AudioRecordingView: View {
                                 selectedStyle = nil
                             } label: {
                                 Image(systemName: "arrow.counterclockwise.circle.fill")
-                                    .font(.system(size: 64))
+                                    .font(.system(size: 56))
                                     .foregroundColor(.white)
                             }
                         }
@@ -104,12 +183,12 @@ struct AudioRecordingView: View {
                                     .font(.headline)
                                     .foregroundColor(.black)
                                     .frame(maxWidth: .infinity)
-                                    .frame(height: 50)
+                                    .frame(height: 44)
                                     .background(
                                         LinearGradient(
                                             colors: [
-                                                Color(red: 1, green: 0.8, blue: 0.9), // Pastel Pink
-                                                Color(red: 0.6, green: 0.7, blue: 1)  // Pastel Blue
+                                                Color(red: 1, green: 0.8, blue: 0.9),
+                                                Color(red: 0.6, green: 0.7, blue: 1)
                                             ],
                                             startPoint: .leading,
                                             endPoint: .trailing
@@ -122,12 +201,12 @@ struct AudioRecordingView: View {
                         }
                     } else {
                         // Record button
-                        HStack(spacing: 40) {
+                        HStack(spacing: 32) {
                             Button {
                                 handleRecordButton()
                             } label: {
                                 Image(systemName: audioService.isRecording ? "stop.circle.fill" : "record.circle.fill")
-                                    .font(.system(size: 84))
+                                    .font(.system(size: 72))
                                     .foregroundColor(audioService.isRecording ? .red : .white)
                             }
                             
@@ -137,7 +216,7 @@ struct AudioRecordingView: View {
                                     audioService.togglePause()
                                 } label: {
                                     Image(systemName: audioService.isPaused ? "play.circle.fill" : "pause.circle.fill")
-                                        .font(.system(size: 84))
+                                        .font(.system(size: 72))
                                         .foregroundColor(audioService.isPaused ? .white : .yellow)
                                 }
                                 .transition(.scale.combined(with: .opacity))
@@ -145,15 +224,9 @@ struct AudioRecordingView: View {
                         }
                         .animation(.spring(response: 0.3), value: audioService.isRecording)
                         .animation(.spring(response: 0.3), value: audioService.isPaused)
-                        .onChange(of: audioService.isRecording) { _, newValue in
-                            print("🎤 isRecording changed to: \(newValue)")
-                        }
-                        .onChange(of: audioService.isPaused) { _, newValue in
-                            print("🎤 isPaused changed to: \(newValue)")
-                        }
                     }
                 }
-                .padding(.bottom, 40)
+                .padding(.bottom, 20)
             }
             
             if isGenerating {
@@ -170,6 +243,35 @@ struct AudioRecordingView: View {
         } message: {
             Text(audioService.errorMessage ?? "An unknown error occurred")
         }
+        .fullScreenCover(isPresented: $showDreamPlayback, content: {
+            if let dream = generatedDream {
+                DreamPlaybackView(dream: dream, modelContext: modelContext)
+                    .onDisappear {
+                        // Dismiss the AudioRecordingView when DreamPlaybackView is dismissed
+                        dismiss()
+                    }
+            }
+        })
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button {
+                    // Stop recording/playback if active
+                    if audioService.isRecording {
+                        audioService.cleanup()
+                    }
+                    if audioService.isPlaying {
+                        audioService.stopPlayback()
+                    }
+                    dismiss()
+                } label: {
+                    HStack {
+                        Image(systemName: "chevron.left")
+                        Text("Back")
+                    }
+                    .foregroundColor(.white)
+                }
+            }
+        }
     }
     
     private func handleRecordButton() {
@@ -179,13 +281,14 @@ struct AudioRecordingView: View {
                 if let url = try? await audioService.stopRecording() {
                     recordedAudioURL = url
                     print("🎤 Recording stopped, URL: \(url)")
+                    await transcribeAudio(url: url)
                 }
             }
         } else {
             print("🎤 Starting recording...")
+            resetStates()
             Task {
                 do {
-                    // Don't set recordedAudioURL when starting recording
                     _ = try await audioService.startRecording()
                     print("🎤 Recording started")
                 } catch {
@@ -196,10 +299,109 @@ struct AudioRecordingView: View {
         }
     }
     
+    private func resetStates() {
+        recordedAudioURL = nil
+        selectedStyle = nil
+        
+        isTranscribing = false
+        transcribedText = nil
+        editedTranscription = ""
+        
+        isGeneratingTitle = false
+        generatedTitle = nil
+        editedTitle = ""
+    }
+    
+    private func transcribeAudio(url: URL) async {
+        isTranscribing = true
+        do {
+            let transcription = try await apiService.transcribeAudio(fileURL: url)
+            transcribedText = transcription
+            // Generate title after successful transcription
+            await generateTitle(from: transcription)
+        } catch {
+            showError = true
+            audioService.errorMessage = "Transcription failed: \(error.localizedDescription)"
+        }
+        isTranscribing = false
+    }
+    
+    private func generateTitle(from description: String) async {
+        isGeneratingTitle = true
+        do {
+            let title = try await apiService.generateTitle(dream: description)
+            generatedTitle = title
+        } catch {
+            showError = true
+            audioService.errorMessage = "Title generation failed: \(error.localizedDescription)"
+        }
+        isGeneratingTitle = false
+    }
+    
     private func generateDream(url: URL, style: DreamVideoStyle) {
         isGenerating = true
         audioService.stopPlayback()
-        onComplete(url, style)
+        
+        Task {
+            do {
+                // Ensure we have a signed-in user
+                if authService.currentUserId == nil {
+                    try await authService.signInAnonymously()
+                }
+                
+                guard let userId = authService.currentUserId else {
+                    throw NSError(domain: "AudioRecording", code: -1, userInfo: [
+                        NSLocalizedDescriptionKey: "Failed to get user ID"
+                    ])
+                }
+                
+                // Get the title to use
+                let dreamTitle = editedTitle.isEmpty ? (generatedTitle ?? "Untitled Dream") : editedTitle
+                
+                // Process and upload the video
+                let (videoURL, localPath) = try await videoProcessingService.processAndUploadVideo(
+                    audioURL: url,
+                    userId: userId,
+                    dreamId: UUID().uuidString,
+                    style: style,
+                    title: dreamTitle
+                )
+                
+                // Create new Dream instance
+                let dream = Dream(
+                    userId: userId,
+                    title: dreamTitle,
+                    description: editedTranscription.isEmpty ? (transcribedText ?? "") : editedTranscription,
+                    date: Date(),
+                    videoURL: videoURL,
+                    audioURL: url,
+                    transcript: transcribedText,
+                    dreamDate: Date(),
+                    localVideoPath: localPath,
+                    localAudioPath: url.lastPathComponent,
+                    videoStyle: style,
+                    isProcessing: false,
+                    processingProgress: 1.0,
+                    processingStatus: .completed
+                )
+                
+                // Save to SwiftData
+                modelContext.insert(dream)
+                try modelContext.save()
+                
+                await MainActor.run {
+                    self.generatedDream = dream
+                    self.isGenerating = false
+                    self.showDreamPlayback = true
+                }
+            } catch {
+                await MainActor.run {
+                    self.isGenerating = false
+                    self.showError = true
+                    audioService.errorMessage = "Failed to generate dream: \(error.localizedDescription)"
+                }
+            }
+        }
     }
     
     private func timeString(from timeInterval: TimeInterval) -> String {

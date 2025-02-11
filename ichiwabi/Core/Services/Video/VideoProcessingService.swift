@@ -3,6 +3,7 @@ import AVFoundation
 import CoreMedia
 import UIKit
 import SwiftUI
+import FirebaseStorage
 
 @MainActor
 final class VideoProcessingService: ObservableObject {
@@ -11,6 +12,13 @@ final class VideoProcessingService: ObservableObject {
     @Published var error: Error?
     
     private let watermarkService = WatermarkService.shared
+    private let assetService: VideoAssetService
+    private let storage: Storage
+    
+    init(assetService: VideoAssetService = VideoAssetService()) {
+        self.assetService = assetService
+        self.storage = Storage.storage()
+    }
     
     enum VideoQuality {
         case high
@@ -215,10 +223,10 @@ final class VideoProcessingService: ObservableObject {
             let hostingController = UIHostingController(rootView: watermarkView)
             hostingController.view.backgroundColor = .clear
             
-            // Size the hosting view
-            let watermarkSize = CGSize(width: size.width * 0.4, height: size.height * 0.15)
+            // Size the hosting view - make it smaller (30% width instead of 40%)
+            let watermarkSize = CGSize(width: size.width * 0.3, height: size.height * 0.12)
             hostingController.view.frame = CGRect(
-                x: 20,
+                x: size.width - watermarkSize.width - 20,  // Position from right edge
                 y: size.height - watermarkSize.height - 20,
                 width: watermarkSize.width,
                 height: watermarkSize.height
@@ -337,6 +345,80 @@ final class VideoProcessingService: ObservableObject {
             throw VideoProcessingError.unknown
         }
     }
+    
+    func processAndUploadVideo(audioURL: URL, userId: String, dreamId: String, style: DreamVideoStyle, title: String? = nil) async throws -> (videoURL: URL, localPath: String) {
+        print("🎬 Starting video processing for dream: \(dreamId)")
+        print("🎬 Using style: \(style)")
+        
+        // Get audio duration
+        let audioAsset = AVAsset(url: audioURL)
+        let audioDuration = try await audioAsset.load(.duration).seconds
+        
+        print("🎬 Audio duration: \(audioDuration) seconds")
+        
+        // Create video with audio
+        let processedVideoURL = try await assetService.createVideoWithAudio(
+            audioURL: audioURL,
+            duration: audioDuration,
+            style: style
+        )
+        
+        // Create a temporary URL for the watermarked video
+        let watermarkedURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("watermarked_\(UUID().uuidString).mp4")
+        
+        // Add watermark to the video
+        let processedAsset = AVAsset(url: processedVideoURL)
+        let videoComposition = try await watermarkService.applyWatermark(
+            to: processedAsset,
+            date: Date(),
+            title: title  // Pass the title to the watermark
+        )
+        
+        // Configure export session for watermarked video
+        guard let exportSession = AVAssetExportSession(
+            asset: processedAsset,
+            presetName: AVAssetExportPresetHighestQuality
+        ) else {
+            throw VideoProcessingError.exportSessionCreationFailed
+        }
+        
+        exportSession.outputURL = watermarkedURL
+        exportSession.outputFileType = .mp4
+        exportSession.videoComposition = videoComposition
+        
+        // Export watermarked video
+        await exportSession.export()
+        
+        guard exportSession.status == .completed else {
+            throw VideoProcessingError.exportFailed
+        }
+        
+        print("🎬 Video processed and watermarked successfully, uploading to Firebase")
+        
+        // Upload to Firebase Storage
+        let storageRef = storage.reference()
+        let videoRef = storageRef.child("dreams/\(userId)/\(dreamId).mp4")
+        
+        let metadata = StorageMetadata()
+        metadata.contentType = "video/mp4"
+        
+        _ = try await videoRef.putFileAsync(from: watermarkedURL, metadata: metadata)
+        let downloadURL = try await videoRef.downloadURL()
+        
+        print("🎬 Video uploaded successfully")
+        print("🎬 Download URL: \(downloadURL)")
+        
+        // Clean up the temporary processed video
+        try? FileManager.default.removeItem(at: processedVideoURL)
+        
+        // Return both the download URL and local file path
+        return (downloadURL, watermarkedURL.lastPathComponent)
+    }
+    
+    func cleanup(url: URL) {
+        try? FileManager.default.removeItem(at: url)
+    }
 }
 
 // MARK: - Errors
@@ -347,6 +429,9 @@ enum VideoProcessingError: LocalizedError {
     case exportCancelled
     case invalidAsset
     case unknown
+    case processingFailed(Error)
+    case uploadFailed(Error)
+    case invalidInput
     
     var errorDescription: String? {
         switch self {
@@ -360,6 +445,12 @@ enum VideoProcessingError: LocalizedError {
             return "Video file is invalid or corrupted"
         case .unknown:
             return "An unknown error occurred"
+        case .processingFailed(let error):
+            return "Failed to process video: \(error.localizedDescription)"
+        case .uploadFailed(let error):
+            return "Failed to upload video: \(error.localizedDescription)"
+        case .invalidInput:
+            return "Invalid input for video processing"
         }
     }
 } 
