@@ -17,7 +17,6 @@ struct HomeView: View {
     @State private var borderPhase = 0.0
     @State private var isRecordButtonPressed = false
     @State private var scenePhase: ScenePhase = .active
-    @State private var showVideoProcessingTest = false
     
     // Add haptic feedback manager
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .medium)
@@ -51,8 +50,7 @@ struct HomeView: View {
                 .navigationBarSetup()
                 .toolbarSetup(
                     syncViewModel: syncViewModel, 
-                    showSignOutAlert: $showSignOutAlert,
-                    showVideoProcessingTest: $showVideoProcessingTest
+                    showSignOutAlert: $showSignOutAlert
                 )
                 .alertSetup(error: $error, showError: $showError, showSignOutAlert: $showSignOutAlert, resetAppState: resetAppState)
                 .fullScreenCover(isPresented: $viewModel.showingAudioRecorder) {
@@ -96,11 +94,6 @@ struct HomeView: View {
                         Task {
                             await viewModel.refreshData()
                         }
-                    }
-                }
-                .sheet(isPresented: $showVideoProcessingTest) {
-                    NavigationStack {
-                        VideoProcessingTestView()
                     }
                 }
         }
@@ -325,20 +318,11 @@ private extension View {
     
     func toolbarSetup(
         syncViewModel: SyncViewModel, 
-        showSignOutAlert: Binding<Bool>,
-        showVideoProcessingTest: Binding<Bool>
+        showSignOutAlert: Binding<Bool>
     ) -> some View {
         self.toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 16) {
-                    #if DEBUG
-                    Button {
-                        showVideoProcessingTest.wrappedValue.toggle()
-                    } label: {
-                        Label("Test Video", systemImage: "video.badge.checkmark")
-                    }
-                    #endif
-                    
                     Button {
                         Task {
                             await syncViewModel.syncDreams()

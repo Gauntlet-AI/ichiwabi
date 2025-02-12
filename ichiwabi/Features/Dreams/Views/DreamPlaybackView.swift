@@ -77,14 +77,16 @@ struct DreamPlaybackView: View {
             VStack(spacing: 20) {
                 videoPlayerSection
                     .frame(maxWidth: .infinity)
-                    .overlay(alignment: .bottom) {
+                    .overlay(alignment: .top) {
                         if !dream.isAIGenerated && !videoGenerationService.isGenerating {
                             DreamGenerationButton {
                                 Task {
                                     await generateAIDream()
                                 }
                             }
-                            .padding(.bottom, 20)
+                            .frame(maxWidth: .infinity)
+                            .padding(.horizontal, 32)
+                            .padding(.top, 80)
                         }
                     }
                 
