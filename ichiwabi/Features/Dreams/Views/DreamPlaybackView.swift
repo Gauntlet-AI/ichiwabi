@@ -388,8 +388,15 @@ struct DreamPlaybackView: View {
             dream.aiGenerationDate = Date()
             dream.isSynced = false
             
+            // Clear the local path so setupPlayer will download the new video
+            dream.localVideoPath = nil
+            
             // Save changes
             try modelContext.save()
+            
+            // Force player cleanup
+            player?.pause()
+            player = nil
             
             // Reload the video player
             await setupPlayer()

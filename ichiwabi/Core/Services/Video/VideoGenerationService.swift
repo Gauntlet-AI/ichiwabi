@@ -87,6 +87,11 @@ final class VideoGenerationService: ObservableObject {
         print("🎬 Dream ID: \(dream.dreamId)")
         print("🎬 Description: \(dream.dreamDescription)")
         print("🎬 Style: \(dream.videoStyle?.apiStyleName ?? "none")")
+        print("🎬 Original video URL: \(dream.videoURL)")
+        print("🎬 Local audio path: \(dream.localAudioPath ?? "none")")
+        if let audioURL = dream.audioURL {
+            print("🎬 Firebase audio URL: \(audioURL)")
+        }
         
         isGenerating = true
         error = nil
@@ -98,9 +103,31 @@ final class VideoGenerationService: ObservableObject {
                 throw VideoGenerationError.invalidInput("No video style selected")
             }
             
-            // Store the original video URL before we start
-            let originalVideoURL = dream.videoURL
-            print("🎬 Original video URL: \(originalVideoURL)")
+            // Download audio from Firebase
+            guard let firebaseAudioURL = dream.audioURL else {
+                print("❌ No Firebase audio URL available")
+                throw VideoGenerationError.processingFailed
+            }
+            
+            print("\n🎬 STEP 1: Downloading audio from Firebase")
+            print("🎬 Firebase URL: \(firebaseAudioURL)")
+            
+            // Download the audio file
+            let (audioTempURL, audioResponse) = try await URLSession.shared.download(from: firebaseAudioURL)
+            
+            guard let audioHttpResponse = audioResponse as? HTTPURLResponse,
+                  audioHttpResponse.statusCode == 200 else {
+                print("❌ Failed to download audio from Firebase")
+                throw VideoGenerationError.processingFailed
+            }
+            
+            // Move to a temporary file with .m4a extension
+            let audioURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).m4a")
+            try? FileManager.default.removeItem(at: audioURL)
+            try FileManager.default.moveItem(at: audioTempURL, to: audioURL)
+            
+            print("✅ Audio downloaded successfully to: \(audioURL)")
+            print("✅ Audio file exists: \(FileManager.default.fileExists(atPath: audioURL.path))")
             
             print("🎬 Starting AI video generation for dream: \(dream.dreamId.uuidString)")
             
@@ -114,18 +141,17 @@ final class VideoGenerationService: ObservableObject {
             // Poll for completion
             print("🎬 Starting to wait for completion for task: \(taskId)")
             let replicateVideoURL = try await waitForCompletion(taskId: taskId)
-            print("🎬 Video generated successfully at URL: \(replicateVideoURL)")
-            
-            currentStage = .processingAudio
-            
-            // Extract audio from original video
-            guard let audioURL = try await extractAudioFromVideo(at: originalVideoURL) else {
-                print("❌ Failed to extract audio from original video")
-                throw VideoGenerationError.processingFailed
-            }
-            print("🎬 Audio extracted successfully to: \(audioURL)")
+            print("\n🎬 REPLICATE SUCCESS - Video URL: \(replicateVideoURL)")
             
             currentStage = .combiningVideoAndAudio
+            print("\n🎬 Combining video and audio")
+            print("🎬 Input parameters:")
+            print("🎬 - Replicate URL: \(replicateVideoURL)")
+            print("🎬 - Audio URL: \(audioURL)")
+            print("🎬 - User ID: \(dream.userId)")
+            print("🎬 - Dream ID: \(dream.dreamId)")
+            print("🎬 - Style: \(videoStyle)")
+            print("🎬 - Title: \(dream.title)")
             
             // Process the video using createVideoWithAIAndAudio
             let result = try await videoProcessingService.createVideoWithAIAndAudio(
@@ -136,6 +162,15 @@ final class VideoGenerationService: ObservableObject {
                 style: videoStyle,
                 title: dream.title
             )
+            
+            // Clean up temporary audio file
+            try? FileManager.default.removeItem(at: audioURL)
+            
+            print("\n✅ Video processing completed successfully")
+            print("✅ Result:")
+            print("✅ - Video URL: \(result.videoURL)")
+            print("✅ - Audio URL: \(result.audioURL)")
+            print("✅ - Local path: \(result.localPath)")
             
             currentStage = .completed
             isGenerating = false
@@ -368,27 +403,76 @@ final class VideoGenerationService: ObservableObject {
     }
     
     private func extractAudioFromVideo(at videoURL: URL) async throws -> URL? {
+        print("\n🔊 AUDIO EXTRACTION START")
+        print("🔊 Source video URL: \(videoURL)")
+        print("🔊 Checking if video file exists: \(FileManager.default.fileExists(atPath: videoURL.path))")
+        
         let temporaryDirectory = FileManager.default.temporaryDirectory
         let audioURL = temporaryDirectory.appendingPathComponent(UUID().uuidString + ".m4a")
+        print("🔊 Target audio URL: \(audioURL)")
         
+        // Load the asset
         let asset = AVAsset(url: videoURL)
+        
+        // Check if asset is playable
+        let isPlayable = try await asset.load(.isPlayable)
+        print("🔊 Asset is playable: \(isPlayable)")
+        
+        // Get tracks
+        let tracks = try await asset.loadTracks(withMediaType: .audio)
+        print("🔊 Number of audio tracks: \(tracks.count)")
+        
+        // Get duration
+        let duration = try await asset.load(.duration)
+        print("🔊 Asset duration: \(duration.seconds) seconds")
+        
+        // Try to get more details about the audio track if available
+        if let audioTrack = tracks.first {
+            let format = try await audioTrack.load(.formatDescriptions)
+            print("🔊 Audio format descriptions: \(String(describing: format))")
+        }
+        
         guard let exportSession = AVAssetExportSession(
             asset: asset,
             presetName: AVAssetExportPresetAppleM4A
         ) else {
+            print("❌ Failed to create export session")
             return nil
         }
+        
+        print("🔊 Export session created successfully")
+        print("🔊 Supported file types: \(AVAssetExportSession.exportPresets(compatibleWith: asset))")
         
         exportSession.outputURL = audioURL
         exportSession.outputFileType = AVFileType.m4a
         exportSession.audioMix = nil
         
+        print("🔊 Starting audio export...")
         await exportSession.export()
         
-        guard exportSession.status == AVAssetExportSession.Status.completed else {
+        print("🔊 Export completed with status: \(exportSession.status.rawValue)")
+        if let error = exportSession.error {
+            print("❌ Export error details:")
+            print("❌ - Description: \(error.localizedDescription)")
+            let nsError = error as NSError
+            print("❌ - Domain: \(nsError.domain)")
+            print("❌ - Code: \(nsError.code)")
+            print("❌ - User Info: \(nsError.userInfo)")
+            if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+                print("❌ - Underlying Error Domain: \(underlying.domain)")
+                print("❌ - Underlying Error Code: \(underlying.code)")
+            }
             return nil
         }
         
+        guard exportSession.status == AVAssetExportSession.Status.completed else {
+            print("❌ Export failed with status: \(exportSession.status.rawValue)")
+            return nil
+        }
+        
+        print("🔊 Audio extraction completed successfully")
+        print("🔊 Output file exists: \(FileManager.default.fileExists(atPath: audioURL.path))")
+        print("🔊 ==================== AUDIO EXTRACTION COMPLETE ====================\n")
         return audioURL
     }
 }
