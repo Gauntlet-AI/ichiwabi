@@ -41,7 +41,9 @@ struct DreamRecorderView: View {
                             Image(systemName: "xmark")
                                 .font(.title2)
                                 .bold()
+                                .foregroundColor(.white)
                         }
+                        .padding()
                         
                         Spacer()
                         
@@ -52,6 +54,7 @@ struct DreamRecorderView: View {
                                 } label: {
                                     Image(systemName: videoCaptureService.isLowLightModeEnabled ? "moon.fill" : "moon")
                                         .font(.title2)
+                                        .foregroundColor(.white)
                                 }
                                 
                                 Button {
@@ -59,12 +62,12 @@ struct DreamRecorderView: View {
                                 } label: {
                                     Image(systemName: "camera.rotate")
                                         .font(.title2)
+                                        .foregroundColor(.white)
                                 }
                             }
                         }
                     }
                     .padding()
-                    .foregroundColor(.white)
                     
                     Spacer()
                     

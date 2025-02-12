@@ -164,7 +164,7 @@ The API includes basic error handling for:
 
 ```python
 # Start a new chat
-response = requests.post("http://localhost:8000/start-chat", 
+response = requests.post("https://yorutabi-api.vercel.app/start-chat", 
     json={
         "analyst": "jung",
         "dream": "I was flying over a dark forest"
@@ -173,7 +173,7 @@ response = requests.post("http://localhost:8000/start-chat",
 chat_id = response.json()["chat_id"]
 
 # Continue the conversation
-response = requests.post(f"http://localhost:8000/chat/{chat_id}",
+response = requests.post(f"https://yorutabi-api.vercel.app/chat/{chat_id}",
     json=[
         {
             "role": "user",
@@ -183,7 +183,7 @@ response = requests.post(f"http://localhost:8000/chat/{chat_id}",
 )
 
 # Generate a title
-response = requests.post("http://localhost:8000/generate-title", 
+response = requests.post("https://yorutabi-api.vercel.app/generate-title", 
     json={
         "dream": "I was flying over a dark forest"
     }
@@ -192,12 +192,12 @@ response = requests.post("http://localhost:8000/generate-title",
 # Transcribe speech
 with open('dream_recording.m4a', 'rb') as f:
     files = {'audio_file': f}
-    response = requests.post("http://localhost:8000/transcribe-speech", 
+    response = requests.post("https://yorutabi-api.vercel.app/transcribe-speech", 
         files=files
     )
 
 # Generate video
-response = requests.post("http://localhost:8000/generate-video",
+response = requests.post("https://yorutabi-api.vercel.app/generate-video",
     json={
         "dream": "I was flying over a dark forest",
         "style": "Realistic"

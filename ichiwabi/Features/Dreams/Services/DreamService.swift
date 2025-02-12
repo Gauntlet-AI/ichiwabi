@@ -55,12 +55,27 @@ class DreamService: ObservableObject {
     // MARK: - Firestore Sync
     
     private func syncDreamToFirestore(_ dream: Dream) async throws {
-        print("💭 Syncing dream to Firestore - ID: \(dream.dreamId), User: \(dream.userId)")
+        print("🔄 Syncing dream to Firestore: \(dream.dreamId)")
+        print("🔄 Dream details:")
+        print("🔄 - Title: \(dream.title)")
+        print("🔄 - Video URL: \(dream.videoURL)")
+        print("🔄 - Local path: \(dream.localVideoPath ?? "none")")
+        
         let docRef = Firestore.firestore().collection("dreams").document(dream.dreamId.uuidString)
-        try await docRef.setData(dream.firestoreData, merge: true)
+        
+        // Convert dream to Firestore data
+        let data = dream.firestoreData
+        print("🔄 Firestore data: \(data)")
+        
+        // Set data with merge to preserve any fields we don't know about
+        try await docRef.setData(data, merge: true)
+        print("✅ Dream synced to Firestore successfully")
+        
+        // Update local sync status
         dream.isSynced = true
         dream.lastSyncedAt = Date()
-        print("💭 Dream synced successfully")
+        try modelContext.save()
+        print("✅ Local sync status updated")
     }
     
     private func deleteDreamFromFirestore(_ dream: Dream) async throws {
@@ -74,13 +89,39 @@ class DreamService: ObservableObject {
         let normalizedStart = calendar.startOfDay(for: start)
         let normalizedEnd = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: end))!
         
+        // First, get local dreams
+        let descriptor = FetchDescriptor<Dream>(
+            predicate: #Predicate<Dream> { dream in
+                dream.userId == userId &&
+                dream.dreamDate >= normalizedStart &&
+                dream.dreamDate < normalizedEnd
+            },
+            sortBy: [SortDescriptor(\.dreamDate, order: .reverse)]
+        )
+        
+        let localDreams = try modelContext.fetch(descriptor)
+        
+        // Then get remote dreams
         let query = Firestore.firestore().collection("dreams")
             .whereField("userId", isEqualTo: userId)
             .whereField("dreamDate", isGreaterThanOrEqualTo: Timestamp(date: normalizedStart))
             .whereField("dreamDate", isLessThan: Timestamp(date: normalizedEnd))
         
         let snapshot = try await query.getDocuments()
-        return snapshot.documents.compactMap { Dream.fromFirestore($0.data()) }
+        
+        // Process remote dreams
+        for document in snapshot.documents {
+            if let remoteDream = Dream.fromFirestore(document.data()) {
+                // Check if we already have this dream locally
+                if !localDreams.contains(where: { $0.dreamId == remoteDream.dreamId }) {
+                    // If not, add it to local storage
+                    modelContext.insert(remoteDream)
+                }
+            }
+        }
+        
+        // Fetch again to get the combined set
+        return try modelContext.fetch(descriptor)
     }
     
     func getDreamsForMonth(_ date: Date) async throws -> [Dream] {

@@ -134,66 +134,75 @@ actor VideoAssetService {
     
     // MARK: - Video Processing
     func createVideoWithAudio(audioURL: URL, duration: TimeInterval, style: DreamVideoStyle) async throws -> URL {
+        print("\n🎬 ==================== CREATING VIDEO WITH AUDIO ====================")
         let baseAsset = try getBaseVideoAsset(for: style)
         let audioAsset = AVAsset(url: audioURL)
         
         // Create composition
         let composition = AVMutableComposition()
-        let videoTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)
-        let audioTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
         
-        // Load tracks
-        let baseVideoTrack = try await baseAsset.loadTracks(withMediaType: .video).first
-        let audioTrack1 = try await audioAsset.loadTracks(withMediaType: .audio).first
-        
-        guard let baseVideoTrack = baseVideoTrack else {
+        // Add video track
+        guard let compositionVideoTrack = composition.addMutableTrack(
+            withMediaType: .video,
+            preferredTrackID: kCMPersistentTrackID_Invalid
+        ),
+        let sourceVideoTrack = try? await baseAsset.loadTracks(withMediaType: .video).first else {
             throw VideoAssetError.invalidAsset
         }
         
-        // Calculate time ranges
+        // Add audio track
+        guard let compositionAudioTrack = composition.addMutableTrack(
+            withMediaType: .audio,
+            preferredTrackID: kCMPersistentTrackID_Invalid
+        ),
+        let sourceAudioTrack = try? await audioAsset.loadTracks(withMediaType: .audio).first else {
+            throw VideoAssetError.invalidAsset
+        }
+        
+        // Get durations
         let videoDuration = try await baseAsset.load(.duration)
-        let audioDuration = CMTime(seconds: duration, preferredTimescale: 600)
+        let targetDuration = CMTime(seconds: duration, preferredTimescale: 600)
         
-        // Insert video track with looping and reversing
+        print("🎬 Base video duration: \(videoDuration.seconds) seconds")
+        print("🎬 Target duration: \(duration) seconds")
+        
+        // Insert audio track for its full duration
+        try compositionAudioTrack.insertTimeRange(
+            CMTimeRange(start: .zero, duration: targetDuration),
+            of: sourceAudioTrack,
+            at: .zero
+        )
+        
+        // Loop video to fill the audio duration
         var currentTime = CMTime.zero
-        var isReversed = false
+        let videoDurationTime = videoDuration
         
-        while currentTime < audioDuration {
-            let remainingTime = audioDuration - currentTime
-            let insertDuration = min(remainingTime, videoDuration)
-            
-            if isReversed {
-                // Create reversed video segment
-                let reverseVideoTrack = try await createReversedVideoTrack(
-                    from: baseVideoTrack,
-                    duration: videoDuration
+        print("🎬 Starting video loop insertion")
+        
+        while currentTime < targetDuration {
+            let remainingTime = targetDuration - currentTime
+            if remainingTime < videoDurationTime {
+                // For the last loop, we might need to trim the video
+                let finalRange = CMTimeRange(
+                    start: .zero,
+                    duration: remainingTime
                 )
-                try videoTrack?.insertTimeRange(
-                    CMTimeRange(start: .zero, duration: insertDuration),
-                    of: reverseVideoTrack,
-                    at: currentTime
-                )
-            } else {
-                // Insert forward video segment
-                try videoTrack?.insertTimeRange(
-                    CMTimeRange(start: .zero, duration: insertDuration),
-                    of: baseVideoTrack,
-                    at: currentTime
-                )
+                try compositionVideoTrack.insertTimeRange(finalRange, of: sourceVideoTrack, at: currentTime)
+                break
             }
             
-            currentTime = CMTimeAdd(currentTime, insertDuration)
-            isReversed.toggle() // Alternate between forward and reverse
+            // Insert full video segment
+            try compositionVideoTrack.insertTimeRange(
+                CMTimeRange(start: .zero, duration: videoDurationTime),
+                of: sourceVideoTrack,
+                at: currentTime
+            )
+            currentTime = CMTimeAdd(currentTime, videoDurationTime)
+            print("🎬 Inserted video loop at time: \(currentTime.seconds) seconds")
         }
         
-        // Add audio track
-        if let audioTrack1 = audioTrack1 {
-            try audioTrack?.insertTimeRange(
-                CMTimeRange(start: .zero, duration: audioDuration),
-                of: audioTrack1,
-                at: .zero
-            )
-        }
+        print("🎬 Video looping complete")
+        print("🎬 Final composition duration: \(try await composition.load(.duration).seconds) seconds")
         
         // Create export session
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).mp4")
@@ -207,15 +216,42 @@ actor VideoAssetService {
         
         exportSession.outputURL = tempURL
         exportSession.outputFileType = .mp4
+        exportSession.shouldOptimizeForNetworkUse = true
         
         // Export
+        print("🎬 Starting export...")
         await exportSession.export()
         
         guard exportSession.status == .completed else {
+            print("❌ Export failed with error: \(String(describing: exportSession.error))")
+            if let error = exportSession.error {
+                print("❌ Error details: \(error.localizedDescription)")
+                if let underlyingError = (error as NSError).userInfo[NSUnderlyingErrorKey] as? Error {
+                    print("❌ Underlying error: \(underlyingError)")
+                }
+            }
             throw VideoAssetError.exportFailed(exportSession.error ?? NSError(domain: "VideoAsset", code: -1))
         }
         
+        print("✅ Export completed successfully")
+        print("🎬 ==================== END CREATING VIDEO WITH AUDIO ====================\n")
         return tempURL
+    }
+    
+    private func orientation(from transform: CGAffineTransform, naturalSize: CGSize) -> (transform: CGAffineTransform, size: CGSize, isPortrait: Bool) {
+        let angle = atan2(transform.b, transform.a)
+        let isPortrait = abs(angle) > .pi / 4 && abs(angle) < .pi * 3 / 4
+        
+        var finalTransform = CGAffineTransform.identity
+        var size = naturalSize
+        
+        if isPortrait {
+            // Rotate to portrait
+            finalTransform = CGAffineTransform(rotationAngle: .pi / 2)
+            size = CGSize(width: naturalSize.height, height: naturalSize.width)
+        }
+        
+        return (finalTransform, size, isPortrait)
     }
     
     private func createReversedVideoTrack(from track: AVAssetTrack, duration: CMTime) async throws -> AVAssetTrack {

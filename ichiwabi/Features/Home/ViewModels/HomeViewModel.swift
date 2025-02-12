@@ -13,6 +13,11 @@ class HomeViewModel: ObservableObject {
     private let modelContext: ModelContext
     private let userId: String
     private let calendar: Calendar
+    private let dreamService: DreamService
+    
+    // Caching properties
+    private var lastStreakCalculation: Date?
+    private var cachedStreak: Int = 0
     
     init(modelContext: ModelContext, userId: String) {
         self.modelContext = modelContext
@@ -23,51 +28,74 @@ class HomeViewModel: ObservableObject {
         calendar.timeZone = TimeZone.current
         self.calendar = calendar
         
+        // Initialize dream service
+        self.dreamService = DreamService(modelContext: modelContext, userId: userId)
+        
         Task {
-            await calculateStreak()
+            await refreshData()
         }
     }
     
-    private func calculateStreak() async {
-        let fetchDescriptor = FetchDescriptor<Dream>(
-            sortBy: [SortDescriptor(\Dream.dreamDate, order: .reverse)]
-        )
+    private func calculateStreakFromDreams(dreams: [Dream], today: Date) -> Int {
+        // If we have a cached streak from today, use it
+        if let lastCalculation = lastStreakCalculation,
+           calendar.isDate(lastCalculation, inSameDayAs: today) {
+            return cachedStreak
+        }
+        
+        let normalizedToday = calendar.startOfDay(for: today)
+        var streakCount = 0
+        var currentDate = normalizedToday
+        
+        // Check if there's a dream for today (using isDate for safer comparison)
+        if dreams.contains(where: { calendar.isDate($0.dreamDate, inSameDayAs: today) }) {
+            streakCount += 1
+        }
+        
+        // Check previous days
+        while true {
+            guard let previousDay = calendar.date(byAdding: .day, value: -1, to: currentDate) else {
+                break
+            }
+            
+            // Use isDate for safer date comparison
+            if !dreams.contains(where: { calendar.isDate($0.dreamDate, inSameDayAs: previousDay) }) {
+                break
+            }
+            
+            streakCount += 1
+            currentDate = previousDay
+        }
+        
+        return streakCount
+    }
+    
+    func refreshData() async {
+        isLoading = true
+        defer { isLoading = false }
+        
+        let today = calendar.startOfDay(for: Date())
+        
+        // Load data for streak calculation
+        let thirtyDaysAgo = calendar.date(byAdding: .day, value: -30, to: today) ?? today
+        let nextMonth = calendar.date(byAdding: .month, value: 1, to: today) ?? today
         
         do {
-            let dreams = try modelContext.fetch(fetchDescriptor)
+            // Single query for all needed data
+            let dreams = try await dreamService.getDreamsForDateRange(
+                start: thirtyDaysAgo,
+                end: nextMonth
+            )
             
-            let today = calendar.startOfDay(for: Date())
-            var streakCount = 0
-            var currentDate = today
+            // Calculate streak
+            let streak = calculateStreakFromDreams(dreams: dreams, today: today)
             
-            for dream in dreams {
-                let dreamDate = calendar.startOfDay(for: dream.dreamDate)
-                
-                // If we've missed a day, break the streak
-                if let daysBetween = calendar.dateComponents([.day], from: dreamDate, to: currentDate).day,
-                   daysBetween > 1 {
-                    break
-                }
-                
-                // If this dream is from the same day we already counted, skip it
-                if dreamDate == currentDate {
-                    continue
-                }
-                
-                // If this dream is from the previous day, increment streak and move to that day
-                if let daysBetween = calendar.dateComponents([.day], from: dreamDate, to: currentDate).day,
-                   daysBetween == 1 {
-                    streakCount += 1
-                    currentDate = dreamDate
-                }
+            // Update state
+            await MainActor.run {
+                self.currentStreak = streak
+                self.lastStreakCalculation = today
+                self.cachedStreak = streak
             }
-            
-            // Check if we have a dream for today
-            if dreams.contains(where: { calendar.startOfDay(for: $0.dreamDate) == today }) {
-                streakCount += 1
-            }
-            
-            currentStreak = streakCount
         } catch {
             self.error = .streakCalculationFailed(error)
             currentStreak = 0
@@ -96,11 +124,12 @@ class HomeViewModel: ObservableObject {
                 processingProgress: 0
             )
             
-            // Save the dream to local storage
-            modelContext.insert(dream)
-            try modelContext.save()
+            // Save the dream using dream service
+            try await dreamService.saveDream(dream)
+            
+            // Refresh data to update streak
+            await refreshData()
         } catch {
-            self.error = .other("Failed to save dream: \(error.localizedDescription)")
             throw error
         }
     }

@@ -29,6 +29,30 @@ struct AudioRecordingView: View {
                 .ignoresSafeArea()
             
             VStack(spacing: 16) {
+                // Navigation bar
+                HStack {
+                    Button {
+                        // Stop recording/playback if active
+                        if audioService.isRecording {
+                            audioService.cleanup()
+                        }
+                        if audioService.isPlaying {
+                            audioService.stopPlayback()
+                        }
+                        dismiss()
+                    } label: {
+                        HStack {
+                            Image(systemName: "chevron.left")
+                            Text("Back")
+                        }
+                        .foregroundColor(.white)
+                    }
+                    .padding(.leading)
+                    
+                    Spacer()
+                }
+                .padding(.top)
+                
                 // Timer and waveform
                 VStack(spacing: 12) {
                     // Timer
@@ -359,7 +383,7 @@ struct AudioRecordingView: View {
                 let dreamTitle = editedTitle.isEmpty ? (generatedTitle ?? "Untitled Dream") : editedTitle
                 
                 // Process and upload the video
-                let (videoURL, localPath) = try await videoProcessingService.processAndUploadVideo(
+                let processedResult = try await videoProcessingService.processAndUploadVideo(
                     audioURL: url,
                     userId: userId,
                     dreamId: UUID().uuidString,
@@ -373,11 +397,11 @@ struct AudioRecordingView: View {
                     title: dreamTitle,
                     description: editedTranscription.isEmpty ? (transcribedText ?? "") : editedTranscription,
                     date: Date(),
-                    videoURL: videoURL,
-                    audioURL: url,
+                    videoURL: processedResult.videoURL,
+                    audioURL: processedResult.audioURL,
                     transcript: transcribedText,
                     dreamDate: Date(),
-                    localVideoPath: localPath,
+                    localVideoPath: processedResult.localPath,
                     localAudioPath: url.lastPathComponent,
                     videoStyle: style,
                     isProcessing: false,

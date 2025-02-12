@@ -11,9 +11,11 @@ struct DreamDetailsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(\.presentationMode) private var presentationMode
-    @StateObject private var viewModel: DreamDetailsViewModel
     @State private var showingError = false
     @State private var player: AVPlayer?
+    
+    // Move viewModel to a StateObject property wrapper without initialization
+    @StateObject private var viewModel: DreamDetailsViewModel
     
     init(videoURL: URL, userId: String, initialTitle: String? = nil, trimStartTime: Double = 0, trimEndTime: Double = 0) {
         self.videoURL = videoURL
@@ -22,24 +24,20 @@ struct DreamDetailsView: View {
         self.trimStartTime = trimStartTime
         self.trimEndTime = trimEndTime
         
-        // Initialize viewModel with a temporary DreamService
+        // Create a temporary context for initialization
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
         let tempContext: ModelContext
         do {
-            let container = try ModelContainer(for: Dream.self)
-            tempContext = ModelContext(container)
+            let container = try ModelContainer(for: Dream.self, configurations: config)
+            tempContext = container.mainContext
         } catch {
             print("Failed to create temporary container: \(error)")
-            // Fallback to an in-memory container
-            let config = ModelConfiguration(isStoredInMemoryOnly: true)
-            do {
-                let container = try ModelContainer(for: Dream.self, configurations: config)
-                tempContext = ModelContext(container)
-            } catch {
-                fatalError("Failed to create even in-memory container: \(error)")
-            }
+            // This is a critical error - we cannot proceed without a ModelContext
+            fatalError("Failed to create ModelContainer: \(error)")
         }
         
-        _viewModel = StateObject(wrappedValue: DreamDetailsViewModel(
+        // Initialize the viewModel with the temporary context
+        self._viewModel = StateObject(wrappedValue: DreamDetailsViewModel(
             videoURL: videoURL,
             dreamService: DreamService(modelContext: tempContext, userId: userId),
             userId: userId,
@@ -108,6 +106,8 @@ struct DreamDetailsView: View {
                     Task {
                         do {
                             print("💭 Saving dream...")
+                            // Update the viewModel's DreamService with the actual modelContext
+                            viewModel.updateDreamService(DreamService(modelContext: modelContext, userId: userId))
                             try await viewModel.saveDream()
                             print("💭 Dream saved successfully")
                             
@@ -176,7 +176,7 @@ struct DreamDetailsView: View {
                             }
                         }
                     }
-                    .frame(width: 250)  // Made wider for the additional text
+                    .frame(width: 250)
                     .padding()
                     .background(.ultraThinMaterial)
                     .cornerRadius(12)
@@ -184,9 +184,6 @@ struct DreamDetailsView: View {
             }
         }
         .onAppear {
-            // Update the DreamService with the actual modelContext
-            viewModel.updateDreamService(DreamService(modelContext: modelContext, userId: userId))
-            
             // Initialize player
             player = AVPlayer(url: videoURL)
             player?.play()

@@ -346,22 +346,48 @@ final class VideoProcessingService: ObservableObject {
         }
     }
     
-    func processAndUploadVideo(audioURL: URL, userId: String, dreamId: String, style: DreamVideoStyle, title: String? = nil) async throws -> (videoURL: URL, localPath: String) {
+    func processAndUploadVideo(
+        videoURL: URL? = nil,  // Optional parameter for AI-generated video
+        audioURL: URL,
+        userId: String,
+        dreamId: String,
+        style: DreamVideoStyle,
+        title: String? = nil
+    ) async throws -> (videoURL: URL, audioURL: URL, localPath: String) {
         print("🎬 Starting video processing for dream: \(dreamId)")
         print("🎬 Using style: \(style)")
+        print("🎬 Input video URL: \(videoURL?.absoluteString ?? "none (using default)")")
         
-        // Get audio duration
+        // First, upload the audio file to Firebase Storage
+        let audioRef = storage.reference().child("users/\(userId)/audio/\(dreamId).m4a")
+        let audioMetadata = StorageMetadata()
+        audioMetadata.contentType = "audio/m4a"
+        
+        print("🎬 Uploading audio file to Firebase Storage")
+        _ = try await audioRef.putFileAsync(from: audioURL, metadata: audioMetadata)
+        let audioDownloadURL = try await audioRef.downloadURL()
+        print("🎬 Audio file uploaded successfully: \(audioDownloadURL)")
+        
+        // Create an asset from the audio file
         let audioAsset = AVAsset(url: audioURL)
         let audioDuration = try await audioAsset.load(.duration).seconds
-        
         print("🎬 Audio duration: \(audioDuration) seconds")
         
-        // Create video with audio
-        let processedVideoURL = try await assetService.createVideoWithAudio(
-            audioURL: audioURL,
-            duration: audioDuration,
-            style: style
-        )
+        // Get the video to process (either AI-generated or default)
+        let processedVideoURL: URL
+        if let aiVideoURL = videoURL {
+            // Use the AI-generated video directly
+            processedVideoURL = aiVideoURL
+            print("🎬 Using AI-generated video")
+        } else {
+            // Create default video with audio
+            processedVideoURL = try await assetService.createVideoWithAudio(
+                audioURL: audioURL,
+                duration: audioDuration,
+                style: style
+            )
+            print("🎬 Created default video")
+        }
         
         // Create a temporary URL for the watermarked video
         let watermarkedURL = FileManager.default.temporaryDirectory
@@ -369,15 +395,86 @@ final class VideoProcessingService: ObservableObject {
         
         // Add watermark to the video
         let processedAsset = AVAsset(url: processedVideoURL)
+        
+        // Get video duration and details
+        let videoDuration = try await processedAsset.load(.duration)
+        print("🎬 Video duration: \(videoDuration.seconds) seconds")
+        
+        // Create a composition to combine video and audio
+        let composition = AVMutableComposition()
+        
+        // Add video track
+        guard let compositionVideoTrack = composition.addMutableTrack(
+            withMediaType: .video,
+            preferredTrackID: kCMPersistentTrackID_Invalid
+        ),
+        let sourceVideoTrack = try? await processedAsset.loadTracks(withMediaType: .video).first else {
+            throw VideoProcessingError.invalidAsset
+        }
+        
+        // Add audio track
+        guard let compositionAudioTrack = composition.addMutableTrack(
+            withMediaType: .audio,
+            preferredTrackID: kCMPersistentTrackID_Invalid
+        ),
+        let sourceAudioTrack = try? await audioAsset.loadTracks(withMediaType: .audio).first else {
+            throw VideoProcessingError.invalidAsset
+        }
+        
+        // Use audio duration as the target duration
+        let targetDuration = audioDuration
+        print("🎬 Target duration (from audio): \(targetDuration) seconds")
+        
+        // Insert audio track for its full duration
+        let audioTimeRange = CMTimeRange(
+            start: .zero,
+            duration: CMTime(seconds: targetDuration, preferredTimescale: 600)
+        )
+        try compositionAudioTrack.insertTimeRange(audioTimeRange, of: sourceAudioTrack, at: .zero)
+        
+        // Loop video to fill the audio duration
+        var currentTime = CMTime.zero
+        let videoDurationTime = CMTime(seconds: videoDuration.seconds, preferredTimescale: 600)
+        let targetDurationTime = CMTime(seconds: targetDuration, preferredTimescale: 600)
+        
+        print("🎬 Starting video loop insertion")
+        print("🎬 Video duration: \(videoDuration.seconds) seconds")
+        
+        while currentTime < targetDurationTime {
+            let currentVideoRange = CMTimeRange(
+                start: .zero,
+                duration: videoDurationTime
+            )
+            
+            // For the last loop, we might need to trim the video
+            let remainingTime = targetDurationTime - currentTime
+            if remainingTime < videoDurationTime {
+                let finalRange = CMTimeRange(
+                    start: .zero,
+                    duration: remainingTime
+                )
+                try compositionVideoTrack.insertTimeRange(finalRange, of: sourceVideoTrack, at: currentTime)
+                break
+            }
+            
+            try compositionVideoTrack.insertTimeRange(currentVideoRange, of: sourceVideoTrack, at: currentTime)
+            currentTime = currentTime + videoDurationTime
+            print("🎬 Inserted video loop at time: \(currentTime.seconds) seconds")
+        }
+        
+        print("🎬 Video looping complete")
+        print("🎬 Final composition duration: \(try await composition.load(.duration).seconds) seconds")
+        
+        // Apply watermark
         let videoComposition = try await watermarkService.applyWatermark(
             to: processedAsset,
             date: Date(),
-            title: title  // Pass the title to the watermark
+            title: title
         )
         
-        // Configure export session for watermarked video
+        // Configure export session
         guard let exportSession = AVAssetExportSession(
-            asset: processedAsset,
+            asset: composition,
             presetName: AVAssetExportPresetHighestQuality
         ) else {
             throw VideoProcessingError.exportSessionCreationFailed
@@ -385,16 +482,36 @@ final class VideoProcessingService: ObservableObject {
         
         exportSession.outputURL = watermarkedURL
         exportSession.outputFileType = .mp4
+        exportSession.shouldOptimizeForNetworkUse = true
         exportSession.videoComposition = videoComposition
         
-        // Export watermarked video
+        // Export
+        print("🎬 Starting export with audio...")
+        print("🎬 Output URL: \(watermarkedURL.path)")
+        
+        // Verify the output directory exists
+        try FileManager.default.createDirectory(
+            at: watermarkedURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        
+        // Remove any existing file
+        try? FileManager.default.removeItem(at: watermarkedURL)
+        
         await exportSession.export()
         
         guard exportSession.status == .completed else {
+            if let error = exportSession.error {
+                print("❌ Export failed with error: \(error)")
+                print("❌ Error details: \(String(describing: error.localizedDescription))")
+                if let underlyingError = (error as NSError).userInfo[NSUnderlyingErrorKey] as? Error {
+                    print("❌ Underlying error: \(underlyingError)")
+                }
+            }
             throw VideoProcessingError.exportFailed
         }
         
-        print("🎬 Video processed and watermarked successfully, uploading to Firebase")
+        print("🎬 Video processed with audio and watermarked successfully, uploading to Firebase")
         
         // Upload to Firebase Storage
         let storageRef = storage.reference()
@@ -408,12 +525,15 @@ final class VideoProcessingService: ObservableObject {
         
         print("🎬 Video uploaded successfully")
         print("🎬 Download URL: \(downloadURL)")
+        print("🎬 Audio URL: \(audioDownloadURL)")
         
-        // Clean up the temporary processed video
-        try? FileManager.default.removeItem(at: processedVideoURL)
+        // Clean up the temporary processed video if it's not the AI video
+        if videoURL == nil {
+            try? FileManager.default.removeItem(at: processedVideoURL)
+        }
         
-        // Return both the download URL and local file path
-        return (downloadURL, watermarkedURL.lastPathComponent)
+        // Return both URLs and local path
+        return (downloadURL, audioDownloadURL, watermarkedURL.lastPathComponent)
     }
     
     func cleanup(url: URL) {

@@ -104,8 +104,8 @@ private struct SignInContentView: View {
                         .padding(.horizontal)
                     }
                 }
-                
                 VStack(spacing: 15) {
+
                     TextField("Email", text: $email)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
                         .textContentType(.emailAddress)

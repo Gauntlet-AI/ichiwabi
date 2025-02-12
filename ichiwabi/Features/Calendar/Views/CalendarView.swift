@@ -43,7 +43,7 @@ struct CalendarView: View {
                     }
                     .padding()
                     
-                    // Month navigation
+                    // Month navigation with refresh button
                     HStack {
                         Button(action: previousMonth) {
                             Image(systemName: "chevron.left")
@@ -62,6 +62,19 @@ struct CalendarView: View {
                         
                         Button(action: nextMonth) {
                             Image(systemName: "chevron.right")
+                                .font(.title2)
+                                .foregroundColor(.accentColor)
+                        }
+                        .padding()
+                        
+                        // Add refresh button
+                        Button(action: {
+                            Task {
+                                await viewModel.loadDreamsForMonth(currentMonth, forceRefresh: true)
+                                await viewModel.refreshData()
+                            }
+                        }) {
+                            Image(systemName: "arrow.clockwise")
                                 .font(.title2)
                                 .foregroundColor(.accentColor)
                         }

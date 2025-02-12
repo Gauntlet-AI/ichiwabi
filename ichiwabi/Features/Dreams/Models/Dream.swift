@@ -13,6 +13,8 @@ enum ProcessingStatus: String, Codable {
     case processing
     case completed
     case failed
+    case aiGenerating  // New status for AI generation
+    case aiCompleted   // New status for completed AI generation
 }
 
 @Model
@@ -39,6 +41,11 @@ final class Dream {
     var processingProgress: Double  // Progress of AI processing (0-1)
     private var _processingStatus: String?  // Internal storage
     var processingError: String?
+    
+    // AI-specific properties
+    var isAIGenerated: Bool = false  // Whether this dream has been AI-generated
+    var originalVideoURL: URL?  // Store the original video URL when AI-generated
+    var aiGenerationDate: Date?  // When the AI generation was completed
     
     // Computed property to handle migration
     var processingStatus: ProcessingStatus {
@@ -78,7 +85,6 @@ final class Dream {
         processingStatus: ProcessingStatus = .pending,
         processingError: String? = nil
     ) {
-        print("🔍 Dream.init - Setting processingStatus to: \(processingStatus.rawValue)")
         self.dreamId = id
         self.userId = userId
         self.title = title
@@ -107,7 +113,6 @@ final class Dream {
 // MARK: - Firestore Conversion
 extension Dream {
     var firestoreData: [String: Any] {
-        print("🔍 Creating firestoreData with processingStatus: \(processingStatus.rawValue)")
         var data: [String: Any] = [
             "id": dreamId.uuidString,
             "userId": userId,
@@ -117,17 +122,23 @@ extension Dream {
             "videoURL": videoURL.absoluteString,
             "createdAt": Timestamp(date: createdAt),
             "updatedAt": Timestamp(date: updatedAt),
-            "tags": tags,
-            "isSynced": isSynced,
             "dreamDate": Timestamp(date: dreamDate),
+            "isSynced": isSynced,
             "isProcessing": isProcessing,
             "processingProgress": processingProgress,
-            "processingStatus": processingStatus.rawValue
+            "processingStatus": processingStatus.rawValue,
+            "isAIGenerated": isAIGenerated  // Add AI generation flag
         ]
         
         // Add optional fields
+        if let audioURL = audioURL {
+            data["audioURL"] = audioURL.absoluteString
+        }
         if let transcript = transcript {
             data["transcript"] = transcript
+        }
+        if !tags.isEmpty {
+            data["tags"] = tags
         }
         if let category = category {
             data["category"] = category
@@ -135,72 +146,79 @@ extension Dream {
         if let lastSyncedAt = lastSyncedAt {
             data["lastSyncedAt"] = Timestamp(date: lastSyncedAt)
         }
+        if let localVideoPath = localVideoPath {
+            data["localVideoPath"] = localVideoPath
+        }
+        if let localAudioPath = localAudioPath {
+            data["localAudioPath"] = localAudioPath
+        }
         if let videoStyle = videoStyle {
             data["videoStyle"] = videoStyle.rawValue
         }
-        if let audioURL = audioURL {
-            data["audioURL"] = audioURL.absoluteString
-        }
         if let processingError = processingError {
             data["processingError"] = processingError
+        }
+        // Add AI-specific optional fields
+        if let originalVideoURL = originalVideoURL {
+            data["originalVideoURL"] = originalVideoURL.absoluteString
+        }
+        if let aiGenerationDate = aiGenerationDate {
+            data["aiGenerationDate"] = Timestamp(date: aiGenerationDate)
         }
         
         return data
     }
     
     static func fromFirestore(_ data: [String: Any]) -> Dream? {
-        print("🔍 Attempting to create Dream from Firestore data")
-        print("🔍 Raw processingStatus from Firestore: \(data["processingStatus"] as? String ?? "nil")")
-        
-        guard
-            let idString = data["id"] as? String,
-            let id = UUID(uuidString: idString),
-            let userId = data["userId"] as? String,
-            let title = data["title"] as? String,
-            let description = data["description"] as? String,
-            let dateTimestamp = data["date"] as? Timestamp,
-            let videoURLString = data["videoURL"] as? String,
-            let videoURL = URL(string: videoURLString),
-            let createdAtTimestamp = data["createdAt"] as? Timestamp,
-            let updatedAtTimestamp = data["updatedAt"] as? Timestamp,
-            let dreamDateTimestamp = data["dreamDate"] as? Timestamp
-        else {
-            print("❌ Failed to extract required fields from Firestore data")
+        guard let idString = data["id"] as? String,
+              let id = UUID(uuidString: idString),
+              let userId = data["userId"] as? String,
+              let title = data["title"] as? String,
+              let description = data["description"] as? String,
+              let dateTimestamp = data["date"] as? Timestamp,
+              let videoURLString = data["videoURL"] as? String,
+              let videoURL = URL(string: videoURLString),
+              let createdAtTimestamp = data["createdAt"] as? Timestamp,
+              let updatedAtTimestamp = data["updatedAt"] as? Timestamp,
+              let dreamDateTimestamp = data["dreamDate"] as? Timestamp else {
             return nil
         }
         
-        // Get processing status with a default value
-        let processingStatus: ProcessingStatus
-        if let statusString = data["processingStatus"] as? String {
-            print("🔍 Found processingStatus string: \(statusString)")
-            if let status = ProcessingStatus(rawValue: statusString) {
-                print("🔍 Successfully created ProcessingStatus from string")
-                processingStatus = status
-            } else {
-                print("⚠️ Invalid processingStatus value, defaulting to .pending")
-                processingStatus = .pending
-            }
-        } else {
-            print("⚠️ No processingStatus in data, defaulting to .pending")
-            processingStatus = .pending
-        }
-        
+        // Handle optional video style
         var videoStyle: DreamVideoStyle?
         if let styleString = data["videoStyle"] as? String {
             videoStyle = DreamVideoStyle(rawValue: styleString)
         }
         
-        // Convert audio URL string to URL if it exists
-        let audioURL: URL?
+        // Handle optional processing status
+        let processingStatus: ProcessingStatus
+        if let statusString = data["processingStatus"] as? String,
+           let status = ProcessingStatus(rawValue: statusString) {
+            processingStatus = status
+        } else {
+            processingStatus = .pending
+        }
+        
+        // Handle optional audio URL
+        var audioURL: URL?
         if let audioURLString = data["audioURL"] as? String {
             audioURL = URL(string: audioURLString)
-        } else {
-            audioURL = nil
         }
         
         var processingError: String?
         if let error = data["processingError"] as? String {
             processingError = error
+        }
+        
+        // Handle AI-specific fields
+        var originalVideoURL: URL?
+        if let originalURLString = data["originalVideoURL"] as? String {
+            originalVideoURL = URL(string: originalURLString)
+        }
+        
+        var aiGenerationDate: Date?
+        if let aiGenTimestamp = data["aiGenerationDate"] as? Timestamp {
+            aiGenerationDate = aiGenTimestamp.dateValue()
         }
         
         let dream = Dream(
@@ -228,7 +246,11 @@ extension Dream {
             processingError: processingError
         )
         
-        print("🔍 Successfully created Dream with processingStatus: \(dream.processingStatus.rawValue)")
+        // Set AI-specific properties
+        dream.isAIGenerated = data["isAIGenerated"] as? Bool ?? false
+        dream.originalVideoURL = originalVideoURL
+        dream.aiGenerationDate = aiGenerationDate
+        
         return dream
     }
 } 

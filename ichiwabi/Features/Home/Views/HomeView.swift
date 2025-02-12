@@ -16,6 +16,8 @@ struct HomeView: View {
     @State private var isGlowing = false
     @State private var borderPhase = 0.0
     @State private var isRecordButtonPressed = false
+    @State private var scenePhase: ScenePhase = .active
+    @State private var showVideoProcessingTest = false
     
     // Add haptic feedback manager
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .medium)
@@ -47,7 +49,11 @@ struct HomeView: View {
         NavigationStack {
             mainContent
                 .navigationBarSetup()
-                .toolbarSetup(syncViewModel: syncViewModel, showSignOutAlert: $showSignOutAlert)
+                .toolbarSetup(
+                    syncViewModel: syncViewModel, 
+                    showSignOutAlert: $showSignOutAlert,
+                    showVideoProcessingTest: $showVideoProcessingTest
+                )
                 .alertSetup(error: $error, showError: $showError, showSignOutAlert: $showSignOutAlert, resetAppState: resetAppState)
                 .fullScreenCover(isPresented: $viewModel.showingAudioRecorder) {
                     AudioRecordingView { url, style in
@@ -55,6 +61,8 @@ struct HomeView: View {
                             do {
                                 try await viewModel.handleRecordedAudio(url, style: style)
                                 viewModel.showingAudioRecorder = false
+                                // Refresh data after recording
+                                await viewModel.refreshData()
                             } catch {
                                 self.error = .other(error.localizedDescription)
                                 showError = true
@@ -77,6 +85,23 @@ struct HomeView: View {
                     // Initialize animations
                     isPulsating = true
                     isGlowing = true
+                    // Refresh data when view appears
+                    Task {
+                        await viewModel.refreshData()
+                    }
+                }
+                .onChange(of: scenePhase) { _, newPhase in
+                    if newPhase == .active {
+                        // Refresh data when app becomes active
+                        Task {
+                            await viewModel.refreshData()
+                        }
+                    }
+                }
+                .sheet(isPresented: $showVideoProcessingTest) {
+                    NavigationStack {
+                        VideoProcessingTestView()
+                    }
                 }
         }
     }
@@ -298,10 +323,22 @@ private extension View {
             .toolbarBackground(.hidden, for: .navigationBar)
     }
     
-    func toolbarSetup(syncViewModel: SyncViewModel, showSignOutAlert: Binding<Bool>) -> some View {
+    func toolbarSetup(
+        syncViewModel: SyncViewModel, 
+        showSignOutAlert: Binding<Bool>,
+        showVideoProcessingTest: Binding<Bool>
+    ) -> some View {
         self.toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 16) {
+                    #if DEBUG
+                    Button {
+                        showVideoProcessingTest.wrappedValue.toggle()
+                    } label: {
+                        Label("Test Video", systemImage: "video.badge.checkmark")
+                    }
+                    #endif
+                    
                     Button {
                         Task {
                             await syncViewModel.syncDreams()

@@ -18,6 +18,7 @@ struct DreamPlaybackView: View {
     
     private let videoUploadService = VideoUploadService()
     private let dreamSyncService: DreamSyncService
+    @StateObject private var videoGenerationService = VideoGenerationService()
     
     init(dream: Dream, modelContext: ModelContext) {
         self.dream = dream
@@ -76,6 +77,16 @@ struct DreamPlaybackView: View {
             VStack(spacing: 20) {
                 videoPlayerSection
                     .frame(maxWidth: .infinity)
+                    .overlay(alignment: .bottom) {
+                        if !dream.isAIGenerated && !videoGenerationService.isGenerating {
+                            DreamGenerationButton {
+                                Task {
+                                    await generateAIDream()
+                                }
+                            }
+                            .padding(.bottom, 20)
+                        }
+                    }
                 
                 VStack(alignment: .leading, spacing: 24) {
                     Text(dream.title)
@@ -112,6 +123,10 @@ struct DreamPlaybackView: View {
                             .frame(maxWidth: .infinity)
                             .frame(height: videoHeight)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
+                            
+                        if videoGenerationService.isGenerating {
+                            generationLoadingOverlay
+                        }
                     }
                 }
                 .frame(height: min(UIScreen.main.bounds.width * (16/9), 600))
@@ -120,6 +135,45 @@ struct DreamPlaybackView: View {
             } else {
                 loadingView
             }
+        }
+    }
+    
+    private var generationLoadingOverlay: some View {
+        ZStack {
+            // Gradient background
+            LinearGradient(
+                colors: [
+                    Color.black.opacity(0.7),
+                    Color(red: 0.2, green: 0.0, blue: 0.4).opacity(0.8),
+                    Color.black.opacity(0.7)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            
+            VStack(spacing: 24) {
+                // Progress indicator
+                ProgressView()
+                    .scaleEffect(1.5)
+                    .tint(.white)
+                
+                // Status text with pulsing animation
+                Text(videoGenerationService.currentStage.description)
+                    .font(.title3)
+                    .fontWeight(.medium)
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.center)
+                    .opacity(0.9)
+                    .modifier(PulsingTextModifier())
+                
+                if videoGenerationService.currentStage != .notStarted {
+                    Text("Please wait while we make your dream real...")
+                        .font(.subheadline)
+                        .foregroundColor(.white.opacity(0.7))
+                        .multilineTextAlignment(.center)
+                }
+            }
+            .padding()
         }
     }
     
@@ -143,12 +197,29 @@ struct DreamPlaybackView: View {
             .disabled(isLoading)
             
             Button("Done") {
-                player?.pause()
-                player = nil
-                if let tempURL = temporaryShareURL {
-                    try? FileManager.default.removeItem(at: tempURL)
+                Task {
+                    do {
+                        // Create DreamService for syncing
+                        let dreamService = DreamService(modelContext: modelContext, userId: dream.userId)
+                        
+                        // Update the dream's sync status and save
+                        dream.isSynced = false
+                        dream.updatedAt = Date()
+                        try await dreamService.saveDream(dream)
+                        
+                        // Clean up resources
+                        player?.pause()
+                        player = nil
+                        if let tempURL = temporaryShareURL {
+                            try? FileManager.default.removeItem(at: tempURL)
+                        }
+                        
+                        // Dismiss the view
+                        dismiss()
+                    } catch {
+                        errorMessage = "Failed to sync dream: \(error.localizedDescription)"
+                    }
                 }
-                dismiss()
             }
             .foregroundColor(Theme.textPrimary)
         }
@@ -197,6 +268,22 @@ struct DreamPlaybackView: View {
                 let fullPath = "dreams/\(dream.userId)/\(localPath)"
                 let localURL = documentsPath.appendingPathComponent(fullPath)
                 print("📼 Full path after download: \(fullPath)")
+                
+                // Download audio file from Firebase Storage if needed
+                if let audioPath = dream.localAudioPath {
+                    print("📼 Attempting to download audio file")
+                    let storage = Storage.storage()
+                    let audioRef = storage.reference().child("users/\(dream.userId)/audio/\(dream.dreamId).m4a")
+                    
+                    let audioLocalPath = documentsPath.appendingPathComponent("dreams/\(dream.userId)/\(audioPath)")
+                    if !FileManager.default.fileExists(atPath: audioLocalPath.path) {
+                        print("📼 Downloading audio file from Firebase Storage")
+                        _ = try await audioRef.write(toFile: audioLocalPath)
+                        print("📼 Audio file downloaded successfully")
+                    } else {
+                        print("📼 Using cached audio file")
+                    }
+                }
                 
                 if FileManager.default.fileExists(atPath: localURL.path) {
                     print("📼 Setting up player with downloaded video")
@@ -286,6 +373,31 @@ struct DreamPlaybackView: View {
             errorMessage = "Failed to prepare video for sharing: \(error.localizedDescription)"
         }
     }
+    
+    private func generateAIDream() async {
+        do {
+            // Store the original video URL
+            dream.originalVideoURL = dream.videoURL
+            
+            // Start the generation process
+            let newVideoURL = try await videoGenerationService.generateVideo(for: dream)
+            
+            // Update the dream with the new video
+            dream.videoURL = newVideoURL
+            dream.isAIGenerated = true
+            dream.aiGenerationDate = Date()
+            dream.isSynced = false
+            
+            // Save changes
+            try modelContext.save()
+            
+            // Reload the video player
+            await setupPlayer()
+            
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
 }
 
 // ShareSheet wrapper for UIActivityViewController
@@ -309,6 +421,24 @@ struct ShareSheet: UIViewControllerRepresentable {
     }
     
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+// Add a pulsing text modifier for the loading status
+private struct PulsingTextModifier: ViewModifier {
+    @State private var isAnimating = false
+    
+    func body(content: Content) -> some View {
+        content
+            .opacity(isAnimating ? 0.5 : 1.0)
+            .animation(
+                .easeInOut(duration: 1.5)
+                .repeatForever(autoreverses: true),
+                value: isAnimating
+            )
+            .onAppear {
+                isAnimating = true
+            }
+    }
 }
 
 #Preview {
