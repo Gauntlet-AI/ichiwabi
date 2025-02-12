@@ -29,6 +29,7 @@ enum VideoAssetError: LocalizedError {
 actor VideoAssetService {
     // MARK: - Properties
     private var baseVideoAssets: [DreamVideoStyle: AVAsset] = [:]
+    private let watermarkService = WatermarkService.shared
     
     // MARK: - Initialization
     init() {
@@ -348,6 +349,7 @@ actor VideoAssetService {
         print("\n🎬 ==================== CREATING AI VIDEO WITH AUDIO ====================")
         print("🎬 Replicate URL: \(replicateVideoURL)")
         print("🎬 Audio URL: \(audioURL)")
+        print("🎬 Title: \(title ?? "none")")
         
         // Debug audio session state
         print("\n🔊 ==================== AUDIO SESSION DEBUG ====================")
@@ -446,7 +448,8 @@ actor VideoAssetService {
         let videoWithAudioURL = try await addAudioToVideo(
             videoURL: loopedVideoURL,
             audioURL: audioURL,
-            targetDuration: audioDuration
+            targetDuration: audioDuration,
+            title: title
         )
         print("🎬 Audio added successfully")
         
@@ -528,7 +531,7 @@ actor VideoAssetService {
     }
     
     // Helper function to add audio to video
-    private func addAudioToVideo(videoURL: URL, audioURL: URL, targetDuration: Double) async throws -> URL {
+    private func addAudioToVideo(videoURL: URL, audioURL: URL, targetDuration: Double, title: String?) async throws -> URL {
         let videoAsset = AVAsset(url: videoURL)
         let audioAsset = AVAsset(url: audioURL)
         
@@ -561,6 +564,13 @@ actor VideoAssetService {
         try compositionVideoTrack.insertTimeRange(timeRange, of: sourceVideoTrack, at: .zero)
         try compositionAudioTrack.insertTimeRange(timeRange, of: sourceAudioTrack, at: .zero)
         
+        // Create watermark composition
+        let watermarkComposition = try await watermarkService.applyWatermark(
+            to: composition,
+            date: Date(),
+            title: title
+        )
+        
         // Export final video with more conservative settings
         let finalURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("final_\(UUID().uuidString).mp4")
@@ -575,6 +585,7 @@ actor VideoAssetService {
         exportSession.outputURL = finalURL
         exportSession.outputFileType = .mp4
         exportSession.shouldOptimizeForNetworkUse = true
+        exportSession.videoComposition = watermarkComposition  // Apply watermark
         
         // Use more conservative audio settings
         exportSession.audioTimePitchAlgorithm = .lowQualityZeroLatency  // Less demanding algorithm
