@@ -169,20 +169,20 @@ final class VideoUploadService: ObservableObject {
     ) -> AVAssetExportSession? {
         let session = AVAssetExportSession(
             asset: asset,
-            presetName: AVAssetExportPreset3840x2160 // Use 4K preset
+            presetName: AVAssetExportPreset1920x1080  // Use 1080p instead of 4K
         )
         
         print("\n🎥 Export Session Configuration:")
         print("🎥 - Preset: \(session?.presetName ?? "none")")
         print("🎥 - Supported File Types: \(session?.supportedFileTypes ?? [])")
         
-        // Configure export with high quality settings
+        // Configure export with more conservative settings
         session?.outputURL = processedURL
         session?.outputFileType = .mp4
-        session?.shouldOptimizeForNetworkUse = false
+        session?.shouldOptimizeForNetworkUse = true  // Enable optimization
         
-        // Set maximum bitrate (20 Mbps)
-        let targetBitrate = max(bitrate, 20_000_000) // At least 20 Mbps
+        // Set reasonable bitrate (8 Mbps max)
+        let targetBitrate = min(bitrate, 8_000_000)  // Cap at 8 Mbps
         session?.fileLengthLimit = Int64(Double(targetBitrate) * duration)
         
         return session

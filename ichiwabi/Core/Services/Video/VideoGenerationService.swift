@@ -45,27 +45,33 @@ final class VideoGenerationService: ObservableObject {
     
     enum GenerationStage {
         case notStarted
-        case generatingVideo
-        case downloadingVideo
-        case processingVideo
-        case applyingAudio
-        case finishing
+        case requestingAIGeneration
+        case waitingForAI
+        case downloadingFromAI
+        case processingAudio
+        case combiningVideoAndAudio
+        case applyingWatermark
+        case uploadingToCloud
         case completed
         
         var description: String {
             switch self {
             case .notStarted:
                 return "Ready to generate"
-            case .generatingVideo:
-                return "Generating your dream..."
-            case .downloadingVideo:
-                return "Downloading video..."
-            case .processingVideo:
-                return "Processing video..."
-            case .applyingAudio:
-                return "Adding audio..."
-            case .finishing:
-                return "Applying finishing touches..."
+            case .requestingAIGeneration:
+                return "Requesting AI generation..."
+            case .waitingForAI:
+                return "AI is creating your dream video..."
+            case .downloadingFromAI:
+                return "Downloading AI-generated video..."
+            case .processingAudio:
+                return "Processing audio from original dream..."
+            case .combiningVideoAndAudio:
+                return "Combining video and audio..."
+            case .applyingWatermark:
+                return "Adding dream details..."
+            case .uploadingToCloud:
+                return "Saving your dream..."
             case .completed:
                 return "Dream generation complete!"
             }
@@ -84,7 +90,7 @@ final class VideoGenerationService: ObservableObject {
         
         isGenerating = true
         error = nil
-        currentStage = .generatingVideo
+        currentStage = .requestingAIGeneration
         
         do {
             guard let videoStyle = dream.videoStyle else {
@@ -103,59 +109,39 @@ final class VideoGenerationService: ObservableObject {
             let taskId = try await startGeneration(description: dream.dreamDescription, style: videoStyle)
             print("🎬 Received task ID: \(taskId)")
             
-            // Add a small delay to allow the task to be registered
-            print("🎬 Waiting 2 seconds before starting to poll...")
-            try await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+            currentStage = .waitingForAI
             
             // Poll for completion
             print("🎬 Starting to wait for completion for task: \(taskId)")
             let replicateVideoURL = try await waitForCompletion(taskId: taskId)
-            
             print("🎬 Video generated successfully at URL: \(replicateVideoURL)")
-            currentStage = .downloadingVideo
             
-            // Download the new video from Replicate
-            let downloadedReplicateVideo = try await downloadVideo(from: replicateVideoURL)
-            print("🎬 Replicate video downloaded successfully to: \(downloadedReplicateVideo)")
+            currentStage = .processingAudio
             
-            currentStage = .processingVideo
-            
-            // Extract audio from the original video
+            // Extract audio from original video
             guard let audioURL = try await extractAudioFromVideo(at: originalVideoURL) else {
                 print("❌ Failed to extract audio from original video")
                 throw VideoGenerationError.processingFailed
             }
             print("🎬 Audio extracted successfully to: \(audioURL)")
             
-            // Get audio duration
-            let audioAsset = AVAsset(url: audioURL)
-            let audioDuration = try await audioAsset.load(.duration).seconds
-            print("🎬 Audio duration: \(audioDuration) seconds")
+            currentStage = .combiningVideoAndAudio
             
-            currentStage = .applyingAudio
-            
-            // Process the downloaded Replicate video
-            let processedVideoURL = try await videoProcessingService.processAndUploadVideo(
-                videoURL: downloadedReplicateVideo,
+            // Process the video using createVideoWithAIAndAudio
+            let result = try await videoProcessingService.createVideoWithAIAndAudio(
+                replicateVideoURL: replicateVideoURL,
                 audioURL: audioURL,
                 userId: dream.userId,
                 dreamId: dream.dreamId.uuidString,
                 style: videoStyle,
                 title: dream.title
             )
-            print("🎬 Video processed and uploaded successfully")
-            
-            currentStage = .finishing
-            
-            try? FileManager.default.removeItem(at: downloadedReplicateVideo)
-            try? FileManager.default.removeItem(at: audioURL)
-            print("🎬 Temporary files cleaned up")
             
             currentStage = .completed
             isGenerating = false
             
             print("🎬 ==================== VIDEO GENERATION COMPLETE ====================\n")
-            return processedVideoURL.videoURL
+            return result.videoURL
             
         } catch {
             print("\n❌ ==================== VIDEO GENERATION ERROR ====================")
@@ -312,6 +298,8 @@ final class VideoGenerationService: ObservableObject {
                 case "succeeded":
                     guard let output = json["output"] as? String,
                           let videoURL = URL(string: output) else {
+                        print("❌ No output URL in response")
+                        print("❌ Response: \(json)")
                         throw VideoGenerationError.invalidResponse
                     }
                     print("🎬 Generation succeeded. Video URL: \(videoURL)")

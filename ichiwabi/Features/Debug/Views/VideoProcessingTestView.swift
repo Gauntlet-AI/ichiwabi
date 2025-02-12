@@ -280,27 +280,6 @@ struct VideoProcessingTestView: View {
             await updateStatus(stage: "Downloading Replicate video", progress: 0.1)
             Self.logger.notice("\n📥 Downloading Replicate video from: \(replicateVideoURL)")
             
-            let (tempURL, response) = try await URLSession.shared.download(from: replicateVideoURL)
-            
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw TestError.invalidResponse("Response is not HTTPURLResponse")
-            }
-            
-            print("📥 Download response status: \(httpResponse.statusCode)")
-            
-            guard httpResponse.statusCode == 200 else {
-                throw TestError.invalidResponse("HTTP \(httpResponse.statusCode)")
-            }
-            
-            // Move to temporary file
-            let temporaryDirectory = FileManager.default.temporaryDirectory
-            let downloadedVideoURL = temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
-            
-            try? FileManager.default.removeItem(at: downloadedVideoURL)
-            try FileManager.default.moveItem(at: tempURL, to: downloadedVideoURL)
-            
-            print("📥 Replicate video downloaded to: \(downloadedVideoURL)")
-            
             // Download audio from Firebase
             guard let firebaseAudioURL = dream.audioURL else {
                 Self.logger.error("❌ No Firebase audio URL available")
@@ -317,6 +296,7 @@ struct VideoProcessingTestView: View {
             }
             
             // Move to a temporary file
+            let temporaryDirectory = FileManager.default.temporaryDirectory
             let firebaseAudioTemp = temporaryDirectory.appendingPathComponent(UUID().uuidString + ".m4a")
             try? FileManager.default.removeItem(at: firebaseAudioTemp)
             try FileManager.default.moveItem(at: audioTempURL, to: firebaseAudioTemp)
@@ -333,8 +313,8 @@ struct VideoProcessingTestView: View {
             Self.logger.notice("✅ Firebase audio file has \(audioTracks.count) audio tracks")
             
             // Process and upload video
-            let processedResult = try await videoProcessingService.processAndUploadVideo(
-                videoURL: downloadedVideoURL,
+            let processedResult = try await videoProcessingService.createVideoWithAIAndAudio(
+                replicateVideoURL: replicateVideoURL,
                 audioURL: firebaseAudioTemp,
                 userId: dream.userId,
                 dreamId: "test_\(dream.dreamId.uuidString)",
@@ -427,7 +407,6 @@ struct VideoProcessingTestView: View {
             
             // Cleanup
             print("\n🧹 Cleaning up temporary files...")
-            try? FileManager.default.removeItem(at: downloadedVideoURL)
             try? FileManager.default.removeItem(at: firebaseAudioTemp)
             print("🧹 Cleanup complete")
             
