@@ -13,6 +13,7 @@ struct DreamDetailsView: View {
     @Environment(\.presentationMode) private var presentationMode
     @State private var showingError = false
     @State private var player: AVPlayer?
+    @State private var statusCheckTimer: Timer?
     
     // Move viewModel to a StateObject property wrapper without initialization
     @StateObject private var viewModel: DreamDetailsViewModel
@@ -183,11 +184,80 @@ struct DreamDetailsView: View {
                 }
             }
         }
+        .overlay {
+            if viewModel.dream?.processingStatus == .aiGenerating {
+                ZStack {
+                    Color.black.opacity(0.7)
+                        .edgesIgnoringSafeArea(.all)
+                    
+                    VStack(spacing: 24) {
+                        // Progress indicator
+                        ProgressView()
+                            .scaleEffect(1.5)
+                            .tint(.white)
+                        
+                        // Status text with pulsing animation
+                        Text("Making your dream real...")
+                            .font(.title3)
+                            .fontWeight(.medium)
+                            .foregroundColor(.white)
+                            .multilineTextAlignment(.center)
+                            .opacity(0.9)
+                            .modifier(PulsingTextModifier())
+                        
+                        Text("This may take a few minutes...")
+                            .font(.subheadline)
+                            .foregroundColor(.white.opacity(0.7))
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+        }
         .onAppear {
+            // Update the view model with the actual model context
+            viewModel.updateDreamService(DreamService(modelContext: modelContext, userId: userId))
+            
             // Initialize player
             player = AVPlayer(url: videoURL)
             player?.play()
+            
+            // Start status check timer
+            statusCheckTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+                viewModel.checkDreamStatus()
+            }
+            
+            // Do an initial check immediately
+            viewModel.checkDreamStatus()
         }
+        .onDisappear {
+            // Clean up timer
+            statusCheckTimer?.invalidate()
+            statusCheckTimer = nil
+            
+            // Clean up player
+            player?.pause()
+            player = nil
+        }
+    }
+}
+
+// Add the PulsingTextModifier if it doesn't exist
+private struct PulsingTextModifier: ViewModifier {
+    @State private var isAnimating = false
+    
+    func body(content: Content) -> some View {
+        content
+            .opacity(isAnimating ? 0.5 : 1.0)
+            .animation(
+                .easeInOut(duration: 1.5)
+                .repeatForever(autoreverses: true),
+                value: isAnimating
+            )
+            .onAppear {
+                isAnimating = true
+            }
     }
 }
 

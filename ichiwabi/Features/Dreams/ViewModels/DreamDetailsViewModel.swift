@@ -18,6 +18,7 @@ class DreamDetailsViewModel: ObservableObject {
     @Published var isTranscribing = false
     @Published var error: Error?
     @Published var uploadProgress: Double = 0
+    @Published var dream: Dream?
     
     init(videoURL: URL, dreamService: DreamService, userId: String, initialTitle: String? = nil, trimStartTime: Double = 0, trimEndTime: Double = 0) {
         self.videoURL = videoURL
@@ -171,6 +172,28 @@ class DreamDetailsViewModel: ObservableObject {
                 print("❌ Failed to create recognition task")
                 continuation.resume()
             }
+        }
+    }
+    
+    @MainActor
+    func checkDreamStatus() {
+        do {
+            print("🔍 Checking dream status...")
+            let dreams = try dreamService.fetchDreams()
+            print("🔍 Found \(dreams.count) dreams")
+            print("🔍 Looking for dream with video URL: \(videoURL.absoluteString)")
+            
+            let matchingDream = dreams.first { $0.videoURL.absoluteString == videoURL.absoluteString }
+            if let matchingDream = matchingDream {
+                print("✅ Found matching dream!")
+                print("✅ Processing status: \(matchingDream.processingStatus)")
+                print("✅ Is AI Generated: \(matchingDream.isAIGenerated)")
+                dream = matchingDream
+            } else {
+                print("❌ No matching dream found")
+            }
+        } catch {
+            print("❌ Failed to check dream status: \(error)")
         }
     }
 }

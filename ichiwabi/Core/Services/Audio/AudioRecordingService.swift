@@ -108,23 +108,31 @@ final class AudioRecordingService: NSObject, ObservableObject {
             
             // Start timer for current time and waveform updates
             Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] timer in
-                guard let self = self, let player = self.audioPlayer else {
+                guard let self = self else {
                     timer.invalidate()
                     return
                 }
-                self.currentTime = player.currentTime
                 
-                // Update displayed levels based on playback position
-                let progress = player.currentTime / player.duration
-                let levelIndex = Int(progress * Double(self.recordedLevels.count))
-                
-                // Safely get a window of levels
-                let startIndex = max(0, min(levelIndex, self.recordedLevels.count - 1))
-                let endIndex = min(startIndex + self.sampleCount, self.recordedLevels.count)
-                if startIndex < endIndex {
-                    self.audioLevels = Array(self.recordedLevels[startIndex..<endIndex])
-                } else {
-                    self.audioLevels = []
+                Task { @MainActor in
+                    guard let player = self.audioPlayer else {
+                        timer.invalidate()
+                        return
+                    }
+                    
+                    self.currentTime = player.currentTime
+                    
+                    // Update displayed levels based on playback position
+                    let progress = player.currentTime / player.duration
+                    let levelIndex = Int(progress * Double(self.recordedLevels.count))
+                    
+                    // Safely get a window of levels
+                    let startIndex = max(0, min(levelIndex, self.recordedLevels.count - 1))
+                    let endIndex = min(startIndex + self.sampleCount, self.recordedLevels.count)
+                    if startIndex < endIndex {
+                        self.audioLevels = Array(self.recordedLevels[startIndex..<endIndex])
+                    } else {
+                        self.audioLevels = []
+                    }
                 }
             }
         } catch {
@@ -174,36 +182,42 @@ final class AudioRecordingService: NSObject, ObservableObject {
         
         // Recording duration timer
         recordingTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self = self,
-                  let startTime = self.recordingStartTime,
-                  !self.isPaused else { return }
+            guard let self = self else { return }
             
-            let duration = Date().timeIntervalSince(startTime)
-            self.recordingDuration = duration
-            
-            // Stop recording if max duration reached
-            if duration >= Self.maxDuration {
-                Task {
-                    try await self.stopRecording()
+            Task { @MainActor in
+                guard let startTime = self.recordingStartTime,
+                      !self.isPaused else { return }
+                
+                let duration = Date().timeIntervalSince(startTime)
+                self.recordingDuration = duration
+                
+                // Stop recording if max duration reached
+                if duration >= Self.maxDuration {
+                    do {
+                        _ = try await self.stopRecording()
+                    } catch {
+                        self.errorMessage = "Failed to stop recording: \(error.localizedDescription)"
+                    }
                 }
             }
         }
         
         // Audio level timer
         levelTimer = Timer.scheduledTimer(withTimeInterval: audioLevelUpdateInterval, repeats: true) { [weak self] _ in
-            guard let self = self,
-                  let recorder = self.audioRecorder,
-                  !self.isPaused else { return }
+            guard let self = self else { return }
             
-            recorder.updateMeters()
-            let level = recorder.averagePower(forChannel: 0)
-            
-            // Convert dB to normalized value (0-1)
-            let minDb: Float = -60
-            let normalizedValue = max(0, (level - minDb) / abs(minDb))
-            
-            // Add to levels array
-            DispatchQueue.main.async {
+            Task { @MainActor in
+                guard let recorder = self.audioRecorder,
+                      !self.isPaused else { return }
+                
+                recorder.updateMeters()
+                let level = recorder.averagePower(forChannel: 0)
+                
+                // Convert dB to normalized value (0-1)
+                let minDb: Float = -60
+                let normalizedValue = max(0, (level - minDb) / abs(minDb))
+                
+                // Add to levels array
                 let value = CGFloat(normalizedValue)
                 self.audioLevels.append(value)
                 self.recordedLevels.append(value)
@@ -240,8 +254,8 @@ final class AudioRecordingService: NSObject, ObservableObject {
 
 // MARK: - AVAudioRecorderDelegate
 extension AudioRecordingService: AVAudioRecorderDelegate {
-    func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
-        DispatchQueue.main.async {
+    nonisolated func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
+        Task { @MainActor in
             self.isRecording = false
             if !flag {
                 self.errorMessage = "Recording failed to complete"
@@ -249,8 +263,8 @@ extension AudioRecordingService: AVAudioRecorderDelegate {
         }
     }
     
-    func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
-        DispatchQueue.main.async {
+    nonisolated func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
+        Task { @MainActor in
             self.isRecording = false
             self.errorMessage = error?.localizedDescription ?? "Recording failed"
         }
@@ -259,8 +273,8 @@ extension AudioRecordingService: AVAudioRecorderDelegate {
 
 // MARK: - AVAudioPlayerDelegate
 extension AudioRecordingService: AVAudioPlayerDelegate {
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        DispatchQueue.main.async {
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor in
             self.isPlaying = false
             self.currentTime = 0
         }

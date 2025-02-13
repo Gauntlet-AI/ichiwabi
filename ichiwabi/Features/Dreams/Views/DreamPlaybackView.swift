@@ -86,7 +86,7 @@ struct DreamPlaybackView: View {
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal, 32)
-                            .padding(.top, 80)
+                            .padding(.top, 49)
                         }
                     }
                 
@@ -173,6 +173,19 @@ struct DreamPlaybackView: View {
                         .font(.subheadline)
                         .foregroundColor(.white.opacity(0.7))
                         .multilineTextAlignment(.center)
+                        
+                    Button {
+                        dismiss()
+                    } label: {
+                        Text("Go to My Dreams")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 10)
+                            .background(Color.blue.opacity(0.3))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    .padding(.top, 16)
                 }
             }
             .padding()
@@ -381,27 +394,41 @@ struct DreamPlaybackView: View {
             // Store the original video URL
             dream.originalVideoURL = dream.videoURL
             
-            // Start the generation process
-            let newVideoURL = try await videoGenerationService.generateVideo(for: dream)
-            
-            // Update the dream with the new video
-            dream.videoURL = newVideoURL
-            dream.isAIGenerated = true
-            dream.aiGenerationDate = Date()
-            dream.isSynced = false
-            
-            // Clear the local path so setupPlayer will download the new video
-            dream.localVideoPath = nil
-            
-            // Save changes
+            // Update processing status
+            dream.isProcessing = true
+            dream.processingStatus = .aiGenerating
             try modelContext.save()
             
-            // Force player cleanup
-            player?.pause()
-            player = nil
-            
-            // Reload the video player
-            await setupPlayer()
+            // Start the generation process in a background task
+            Task.detached {
+                do {
+                    // Generate the video
+                    let newVideoURL = try await videoGenerationService.generateVideo(for: dream)
+                    
+                    // Update the dream with the new video on the main thread
+                    await MainActor.run {
+                        dream.videoURL = newVideoURL
+                        dream.isAIGenerated = true
+                        dream.aiGenerationDate = Date()
+                        dream.isSynced = false
+                        dream.isProcessing = false
+                        dream.processingStatus = .aiCompleted
+                        
+                        // Clear the local path so setupPlayer will download the new video
+                        dream.localVideoPath = nil
+                        
+                        // Save changes
+                        try? modelContext.save()
+                    }
+                } catch {
+                    await MainActor.run {
+                        dream.isProcessing = false
+                        dream.processingStatus = .failed
+                        dream.processingError = error.localizedDescription
+                        try? modelContext.save()
+                    }
+                }
+            }
             
         } catch {
             errorMessage = error.localizedDescription
