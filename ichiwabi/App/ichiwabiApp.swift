@@ -10,6 +10,7 @@ import SwiftData
 import FirebaseCore
 import UIKit
 import FirebaseAuth
+import BackgroundTasks
 
 class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
@@ -18,6 +19,15 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         
         // Apply theme at launch
         Theme.applyTheme()
+        
+        // Configure background tasks
+        BGTaskScheduler.shared.setAuthorizationHandler { granted in
+            if granted {
+                print("✅ Background task authorization granted")
+            } else {
+                print("❌ Background task authorization denied")
+            }
+        }
         
         // Request notification authorization on first launch
         Task {
@@ -71,6 +81,7 @@ struct IchiwabiApp: App {
     // Register app delegate for Firebase setup
     @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @StateObject private var notificationService = NotificationService.shared
+    @StateObject private var watchSyncManager = WatchSyncManager.shared
     @State private var showingRecorder = false
     @State private var syncViewModel: SyncViewModel?
     
@@ -148,6 +159,7 @@ struct IchiwabiApp: App {
     // Helper view to handle notifications and recording
     private struct MainContentView: View {
         @ObservedObject var notificationService: NotificationService
+        @ObservedObject var watchSyncManager: WatchSyncManager
         @Binding var showingRecorder: Bool
         let syncViewModel: SyncViewModel
         
@@ -170,6 +182,7 @@ struct IchiwabiApp: App {
                     }
             }
             .environmentObject(syncViewModel)
+            .environmentObject(watchSyncManager)
         }
     }
     
@@ -183,6 +196,7 @@ struct IchiwabiApp: App {
                     if let syncViewModel = syncViewModel {
                         MainContentView(
                             notificationService: notificationService,
+                            watchSyncManager: watchSyncManager,
                             showingRecorder: $showingRecorder,
                             syncViewModel: syncViewModel
                         )

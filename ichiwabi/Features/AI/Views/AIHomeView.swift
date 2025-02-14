@@ -45,7 +45,7 @@ struct AIHomeView: View {
             
             // Main Content (Background)
             VStack(spacing: 0) {
-                if let dream = selectedDream {
+                if selectedDream != nil {
                     GeometryReader { geometry in
                         ZStack(alignment: .bottom) {
                             ScrollViewReader { proxy in
@@ -78,7 +78,7 @@ struct AIHomeView: View {
                                             .frame(height: 160)
                                     }
                                 }
-                                .onChange(of: messages.count) { _ in
+                                .onChange(of: messages.count) { oldCount, newCount in
                                     withAnimation {
                                         if isTyping {
                                             proxy.scrollTo("typingIndicator", anchor: .bottom)
@@ -87,7 +87,7 @@ struct AIHomeView: View {
                                         }
                                     }
                                 }
-                                .onChange(of: isTyping) { _ in
+                                .onChange(of: isTyping) { wasTyping, isTyping in
                                     withAnimation {
                                         if isTyping {
                                             proxy.scrollTo("typingIndicator", anchor: .bottom)
@@ -375,9 +375,9 @@ struct ChatInputView: View {
                 TextEditor(text: $text)
                     .frame(height: textEditorHeight)
                     .scrollContentBackground(.hidden)
-                    .onChange(of: text) { _ in
+                    .onChange(of: text) { oldText, newText in
                         withAnimation(.easeInOut(duration: 0.15)) {
-                            let size = (text as NSString).boundingRect(
+                            let size = (newText as NSString).boundingRect(
                                 with: CGSize(width: UIScreen.main.bounds.width - 100, height: .infinity),
                                 options: [.usesFontLeading, .usesLineFragmentOrigin],
                                 attributes: [.font: UIFont.systemFont(ofSize: 16)],

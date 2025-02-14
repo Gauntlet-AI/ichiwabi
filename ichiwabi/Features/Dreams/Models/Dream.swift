@@ -17,6 +17,22 @@ enum ProcessingStatus: String, Codable {
     case aiCompleted   // New status for completed AI generation
 }
 
+enum WatchSyncStatus: String, Codable {
+    case pending
+    case uploading
+    case uploaded
+    case failed
+    case synced
+}
+
+enum WatchRecordingError: String, Codable {
+    case noConnection
+    case transferFailed
+    case phoneNotReachable
+    case audioUploadFailed
+    case unknown
+}
+
 @Model
 final class Dream {
     @Attribute(.unique) var dreamId: UUID
@@ -46,6 +62,34 @@ final class Dream {
     var isAIGenerated: Bool = false  // Whether this dream has been AI-generated
     var originalVideoURL: URL?  // Store the original video URL when AI-generated
     var aiGenerationDate: Date?  // When the AI generation was completed
+    
+    // Watch-specific sync properties
+    var isWatchRecording: Bool = false  // Whether this dream was recorded on the Watch
+    var needsUploadToPhone: Bool = false  // Whether this needs to be synced to the iPhone
+    private var _watchSyncStatus: String = WatchSyncStatus.pending.rawValue
+    private var _watchSyncError: String?
+    
+    // Computed properties for watch sync
+    var watchSyncStatus: WatchSyncStatus {
+        get {
+            WatchSyncStatus(rawValue: _watchSyncStatus) ?? .pending
+        }
+        set {
+            _watchSyncStatus = newValue.rawValue
+        }
+    }
+    
+    var watchSyncError: WatchRecordingError? {
+        get {
+            if let errorString = _watchSyncError {
+                return WatchRecordingError(rawValue: errorString)
+            }
+            return nil
+        }
+        set {
+            _watchSyncError = newValue?.rawValue
+        }
+    }
     
     // Computed property to handle migration
     var processingStatus: ProcessingStatus {

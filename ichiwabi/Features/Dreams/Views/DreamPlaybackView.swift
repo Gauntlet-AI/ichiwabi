@@ -114,7 +114,9 @@ struct DreamPlaybackView: View {
     
     private var videoPlayerSection: some View {
         Group {
-            if let player = player {
+            if dream.processingStatus == .pending {
+                pendingVideoOverlay
+            } else if let player = player {
                 GeometryReader { geometry in
                     let videoHeight = min(geometry.size.width * (16/9), 600)
                     
@@ -137,6 +139,59 @@ struct DreamPlaybackView: View {
             } else {
                 loadingView
             }
+        }
+    }
+    
+    private var pendingVideoOverlay: some View {
+        ZStack {
+            // Background
+            LinearGradient(
+                colors: [
+                    Color.black.opacity(0.7),
+                    Color(red: 0.2, green: 0.0, blue: 0.4).opacity(0.8),
+                    Color.black.opacity(0.7)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .frame(height: min(UIScreen.main.bounds.width * (16/9), 600))
+            
+            VStack(spacing: 24) {
+                // Progress indicator
+                ProgressView()
+                    .scaleEffect(1.5)
+                    .tint(.white)
+                
+                // Status text with pulsing animation
+                Text("Generating your dream video...")
+                    .font(.title3)
+                    .fontWeight(.medium)
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.center)
+                    .opacity(0.9)
+                    .modifier(PulsingTextModifier())
+                
+                Text("This may take a few minutes.")
+                    .font(.subheadline)
+                    .foregroundColor(.white.opacity(0.7))
+                    .multilineTextAlignment(.center)
+                
+                Button {
+                    Task {
+                        await generatePendingVideo()
+                    }
+                } label: {
+                    Text("Generate Now")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.blue.opacity(0.3))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .padding(.top, 16)
+            }
+            .padding()
         }
     }
     
@@ -407,18 +462,25 @@ struct DreamPlaybackView: View {
                     
                     // Update the dream with the new video on the main thread
                     await MainActor.run {
-                        dream.videoURL = newVideoURL
-                        dream.isAIGenerated = true
-                        dream.aiGenerationDate = Date()
-                        dream.isSynced = false
-                        dream.isProcessing = false
-                        dream.processingStatus = .aiCompleted
-                        
-                        // Clear the local path so setupPlayer will download the new video
-                        dream.localVideoPath = nil
-                        
-                        // Save changes
-                        try? modelContext.save()
+                        if let url = URL(string: newVideoURL) {
+                            dream.videoURL = url
+                            dream.isAIGenerated = true
+                            dream.aiGenerationDate = Date()
+                            dream.isSynced = false
+                            dream.isProcessing = false
+                            dream.processingStatus = .aiCompleted
+                            
+                            // Clear the local path so setupPlayer will download the new video
+                            dream.localVideoPath = nil
+                            
+                            // Save changes
+                            try? modelContext.save()
+                        } else {
+                            dream.isProcessing = false
+                            dream.processingStatus = .failed
+                            dream.processingError = "Invalid video URL returned"
+                            try? modelContext.save()
+                        }
                     }
                 } catch {
                     await MainActor.run {
@@ -430,6 +492,60 @@ struct DreamPlaybackView: View {
                 }
             }
             
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+    
+    private func generatePendingVideo() async {
+        do {
+            // Update processing status
+            dream.isProcessing = true
+            dream.processingStatus = .processing
+            try modelContext.save()
+            
+            // Start the generation process in a background task
+            Task.detached {
+                do {
+                    // Generate the video
+                    let newVideoURL = try await videoGenerationService.generateVideo(for: dream)
+                    
+                    // Update the dream with the new video on the main thread
+                    await MainActor.run {
+                        if let url = URL(string: newVideoURL) {
+                            dream.videoURL = url
+                            dream.isProcessing = false
+                            dream.processingStatus = .completed
+                            dream.isSynced = false
+                            
+                            // Clear the local path so setupPlayer will download the new video
+                            dream.localVideoPath = nil
+                            
+                            // Save changes
+                            try? modelContext.save()
+                            
+                            // Refresh the player
+                            Task {
+                                await setupPlayer()
+                            }
+                        } else {
+                            dream.isProcessing = false
+                            dream.processingStatus = .failed
+                            dream.processingError = "Invalid video URL returned"
+                            try? modelContext.save()
+                            
+                            errorMessage = "Failed to generate video: Invalid URL returned"
+                        }
+                    }
+                } catch {
+                    await MainActor.run {
+                        dream.isProcessing = false
+                        dream.processingStatus = .failed
+                        dream.processingError = error.localizedDescription
+                        try? modelContext.save()
+                    }
+                }
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -459,23 +575,7 @@ struct ShareSheet: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
-// Add a pulsing text modifier for the loading status
-private struct PulsingTextModifier: ViewModifier {
-    @State private var isAnimating = false
-    
-    func body(content: Content) -> some View {
-        content
-            .opacity(isAnimating ? 0.5 : 1.0)
-            .animation(
-                .easeInOut(duration: 1.5)
-                .repeatForever(autoreverses: true),
-                value: isAnimating
-            )
-            .onAppear {
-                isAnimating = true
-            }
-    }
-}
+// Using shared PulsingTextModifier from Core/Views/Modifiers
 
 #Preview {
     do {

@@ -15,14 +15,27 @@
               "state": {
                 "file": "vernacular.md",
                 "mode": "source",
-                "backlinks": false,
-                "source": false
+                "source": false,
+                "backlinks": false
               },
               "icon": "lucide-file",
               "title": "vernacular"
             }
+          },
+          {
+            "id": "e615a58d205056ac",
+            "type": "leaf",
+            "state": {
+              "type": "release-notes",
+              "state": {
+                "currentVersion": "1.8.4"
+              },
+              "icon": "lucide-book-up",
+              "title": "Release Notes 1.8.4"
+            }
           }
-        ]
+        ],
+        "currentTab": 1
       }
     ],
     "direction": "vertical"
@@ -41,7 +54,8 @@
             "state": {
               "type": "file-explorer",
               "state": {
-                "sortOrder": "alphabetical"
+                "sortOrder": "alphabetical",
+                "autoReveal": false
               },
               "icon": "lucide-folder-closed",
               "title": "Files"
@@ -178,7 +192,7 @@
       "callout-manager:Insert Callout": false
     }
   },
-  "active": "545f7a50a31fb13c",
+  "active": "e615a58d205056ac",
   "lastOpenFiles": [
     "questions.md",
     "vernacular.md",

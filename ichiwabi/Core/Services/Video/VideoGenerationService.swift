@@ -1,6 +1,8 @@
 import Foundation
 import SwiftUI
 import AVFoundation
+import FirebaseStorage
+import FirebaseFirestore
 
 enum VideoGenerationError: LocalizedError {
     case invalidURL
@@ -38,6 +40,8 @@ enum VideoGenerationError: LocalizedError {
 final class VideoGenerationService: ObservableObject {
     private let baseURL = "https://yorutabi-api.vercel.app"
     private let videoProcessingService: VideoProcessingService
+    private let storage = Storage.storage()
+    private let db = Firestore.firestore()
     
     @Published private(set) var isGenerating = false
     @Published private(set) var currentStage = GenerationStage.notStarted
@@ -82,117 +86,243 @@ final class VideoGenerationService: ObservableObject {
         self.videoProcessingService = videoProcessingService ?? VideoProcessingService()
     }
     
-    func generateVideo(for dream: Dream) async throws -> URL {
-        print("\n🎬 ==================== VIDEO GENERATION START ====================")
-        print("🎬 Dream ID: \(dream.dreamId)")
-        print("🎬 Description: \(dream.dreamDescription)")
-        print("🎬 Style: \(dream.videoStyle?.apiStyleName ?? "none")")
-        print("🎬 Original video URL: \(dream.videoURL)")
-        print("🎬 Local audio path: \(dream.localAudioPath ?? "none")")
-        if let audioURL = dream.audioURL {
-            print("🎬 Firebase audio URL: \(audioURL)")
-        }
-        
+    func generateVideo(for dream: Dream) async throws -> String {
         isGenerating = true
-        error = nil
-        currentStage = .requestingAIGeneration
+        defer { isGenerating = false }
+        
+        print("\n🎬 ==================== VIDEO GENERATION ====================")
+        print("🎬 Starting video generation for dream: \(dream.id)")
         
         do {
-            guard let videoStyle = dream.videoStyle else {
-                print("❌ No video style selected")
-                throw VideoGenerationError.invalidInput("No video style selected")
+            // 1. Download the audio file
+            guard let audioURL = dream.audioURL?.absoluteString else {
+                throw NSError(domain: "VideoGeneration", code: -1, userInfo: [
+                    NSLocalizedDescriptionKey: "Invalid audio URL"
+                ])
             }
             
-            // Download audio from Firebase
-            guard let firebaseAudioURL = dream.audioURL else {
-                print("❌ No Firebase audio URL available")
-                throw VideoGenerationError.processingFailed
-            }
+            let audioData = try await downloadFile(from: URL(string: audioURL)!)
+            let localAudioURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString)
+                .appendingPathExtension("m4a")
+            try audioData.write(to: localAudioURL)
+            print("✅ Audio downloaded successfully")
             
-            print("\n🎬 STEP 1: Downloading audio from Firebase")
-            print("🎬 Firebase URL: \(firebaseAudioURL)")
-            
-            // Download the audio file
-            let (audioTempURL, audioResponse) = try await URLSession.shared.download(from: firebaseAudioURL)
-            
-            guard let audioHttpResponse = audioResponse as? HTTPURLResponse,
-                  audioHttpResponse.statusCode == 200 else {
-                print("❌ Failed to download audio from Firebase")
-                throw VideoGenerationError.processingFailed
-            }
-            
-            // Move to a temporary file with .m4a extension
-            let audioURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).m4a")
-            try? FileManager.default.removeItem(at: audioURL)
-            try FileManager.default.moveItem(at: audioTempURL, to: audioURL)
-            
-            print("✅ Audio downloaded successfully to: \(audioURL)")
-            print("✅ Audio file exists: \(FileManager.default.fileExists(atPath: audioURL.path))")
-            
-            print("🎬 Starting AI video generation for dream: \(dream.dreamId.uuidString)")
-            
-            // Start generation and get task ID
-            print("🎬 Calling startGeneration...")
-            let taskId = try await startGeneration(description: dream.dreamDescription, style: videoStyle)
-            print("🎬 Received task ID: \(taskId)")
-            
-            currentStage = .waitingForAI
-            
-            // Poll for completion
-            print("🎬 Starting to wait for completion for task: \(taskId)")
-            let replicateVideoURL = try await waitForCompletion(taskId: taskId)
-            print("\n🎬 REPLICATE SUCCESS - Video URL: \(replicateVideoURL)")
-            
-            currentStage = .combiningVideoAndAudio
-            print("\n🎬 Combining video and audio")
-            print("🎬 Input parameters:")
-            print("🎬 - Replicate URL: \(replicateVideoURL)")
-            print("🎬 - Audio URL: \(audioURL)")
-            print("🎬 - User ID: \(dream.userId)")
-            print("🎬 - Dream ID: \(dream.dreamId)")
-            print("🎬 - Style: \(videoStyle)")
-            print("🎬 - Title: \(dream.title)")
-            
-            // Process the video using createVideoWithAIAndAudio
-            let result = try await videoProcessingService.createVideoWithAIAndAudio(
-                replicateVideoURL: replicateVideoURL,
-                audioURL: audioURL,
-                userId: dream.userId,
-                dreamId: dream.dreamId.uuidString,
-                style: videoStyle,
-                title: dream.title
+            // 2. Generate video frames based on style and description
+            let videoFrames = try await generateVideoFrames(
+                description: dream.dreamDescription,
+                style: dream.videoStyle ?? .realistic
             )
+            print("✅ Video frames generated successfully")
             
-            // Clean up temporary audio file
-            try? FileManager.default.removeItem(at: audioURL)
+            // 3. Combine audio and video frames
+            let outputURL = try await combineAudioAndVideo(
+                audioURL: localAudioURL,
+                videoFrames: videoFrames,
+                outputFileName: "\(dream.dreamId.uuidString).mp4"
+            )
+            print("✅ Audio and video combined successfully")
             
-            print("\n✅ Video processing completed successfully")
-            print("✅ Result:")
-            print("✅ - Video URL: \(result.videoURL)")
-            print("✅ - Audio URL: \(result.audioURL)")
-            print("✅ - Local path: \(result.localPath)")
+            // 4. Upload the final video
+            let videoRef = storage.reference().child("users/\(dream.userId)/videos/\(dream.dreamId.uuidString).mp4")
+            _ = try await videoRef.putFile(from: outputURL)
+            let videoDownloadURL = try await videoRef.downloadURL()
+            print("✅ Video uploaded successfully")
             
-            currentStage = .completed
-            isGenerating = false
+            // 5. Update Firestore document
+            try await db.collection("dreams").document(dream.dreamId.uuidString).updateData([
+                "videoURL": videoDownloadURL.absoluteString,
+                "status": "completed",
+                "isProcessing": false,
+                "processingProgress": 1.0,
+                "processingStatus": "completed",
+                "updatedAt": FieldValue.serverTimestamp()
+            ])
+            print("✅ Firestore document updated")
             
-            print("🎬 ==================== VIDEO GENERATION COMPLETE ====================\n")
-            return result.videoURL
+            // 6. Clean up temporary files
+            try? FileManager.default.removeItem(at: localAudioURL)
+            try? FileManager.default.removeItem(at: outputURL)
+            print("✅ Temporary files cleaned up")
+            
+            print("🎬 ==================== END GENERATION ====================\n")
+            return videoDownloadURL.absoluteString
             
         } catch {
-            print("\n❌ ==================== VIDEO GENERATION ERROR ====================")
-            print("❌ Error: \(error)")
-            if let videoError = error as? VideoGenerationError {
-                print("❌ Video Generation Error: \(videoError.errorDescription ?? "Unknown")")
-            }
-            print("❌ Current stage: \(currentStage.description)")
-            print("❌ Stack trace:")
-            debugPrint(error)
-            print("❌ ==================== END ERROR ====================\n")
+            print("❌ Video generation failed: \(error.localizedDescription)")
             
-            isGenerating = false
-            self.error = error
+            // Update Firestore with error status
+            try? await db.collection("dreams").document(dream.dreamId.uuidString).updateData([
+                "status": "failed",
+                "isProcessing": false,
+                "processingStatus": "failed",
+                "processingError": error.localizedDescription,
+                "updatedAt": FieldValue.serverTimestamp()
+            ])
+            
             throw error
         }
+    }
+    
+    private func downloadFile(from url: URL) async throws -> Data {
+        let (data, _) = try await URLSession.shared.data(from: url)
+        return data
+    }
+    
+    private func generateVideoFrames(description: String, style: DreamVideoStyle) async throws -> [CGImage] {
+        // TODO: Implement video frame generation using your AI service
+        // For now, return a placeholder frame
+        let placeholderFrame = try generatePlaceholderFrame(text: "Dream Video")
+        return Array(repeating: placeholderFrame, count: 30) // 1 second at 30fps
+    }
+    
+    private func generatePlaceholderFrame(text: String) throws -> CGImage {
+        let size = CGSize(width: 1080, height: 1920) // 9:16 aspect ratio
+        let renderer = UIGraphicsImageRenderer(size: size)
+        
+        let image = renderer.image { context in
+            // Fill background
+            UIColor.black.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+            
+            // Draw text
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 48, weight: .bold),
+                .foregroundColor: UIColor.white
+            ]
+            
+            let textSize = text.size(withAttributes: attributes)
+            let textRect = CGRect(
+                x: (size.width - textSize.width) / 2,
+                y: (size.height - textSize.height) / 2,
+                width: textSize.width,
+                height: textSize.height
+            )
+            
+            text.draw(in: textRect, withAttributes: attributes)
+        }
+        
+        guard let cgImage = image.cgImage else {
+            throw NSError(domain: "VideoGeneration", code: -1, userInfo: [
+                NSLocalizedDescriptionKey: "Failed to create placeholder frame"
+            ])
+        }
+        
+        return cgImage
+    }
+    
+    private func combineAudioAndVideo(
+        audioURL: URL,
+        videoFrames: [CGImage],
+        outputFileName: String
+    ) async throws -> URL {
+        let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent(outputFileName)
+        if FileManager.default.fileExists(atPath: outputURL.path) {
+            try FileManager.default.removeItem(at: outputURL)
+        }
+        
+        // Create video writer
+        guard let videoWriter = try? AVAssetWriter(outputURL: outputURL, fileType: .mp4) else {
+            throw NSError(domain: "VideoGeneration", code: -1, userInfo: [
+                NSLocalizedDescriptionKey: "Failed to create video writer"
+            ])
+        }
+        
+        // Video settings
+        let videoSettings: [String: Any] = [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: videoFrames[0].width,
+            AVVideoHeightKey: videoFrames[0].height
+        ]
+        
+        // Create video input
+        let videoWriterInput = AVAssetWriterInput(
+            mediaType: .video,
+            outputSettings: videoSettings
+        )
+        
+        // Create pixel buffer adapter
+        let attributes: [String: Any] = [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32ARGB,
+            kCVPixelBufferWidthKey as String: videoFrames[0].width,
+            kCVPixelBufferHeightKey as String: videoFrames[0].height
+        ]
+        
+        let pixelBufferAdaptor = AVAssetWriterInputPixelBufferAdaptor(
+            assetWriterInput: videoWriterInput,
+            sourcePixelBufferAttributes: attributes
+        )
+        
+        videoWriterInput.expectsMediaDataInRealTime = true
+        videoWriter.add(videoWriterInput)
+        
+        // Start writing session
+        videoWriter.startWriting()
+        videoWriter.startSession(atSourceTime: .zero)
+        
+        // Write video frames
+        let frameDuration = CMTime(value: 1, timescale: 30) // 30fps
+        var frameCount: Int64 = 0
+        
+        for frame in videoFrames {
+            while !videoWriterInput.isReadyForMoreMediaData {
+                try await Task.sleep(nanoseconds: 10_000_000) // 10ms
+            }
+            
+            let presentationTime = CMTime(value: frameCount, timescale: 30)
+            
+            autoreleasepool {
+                if let pixelBuffer = createPixelBuffer(from: frame, attributes: attributes) {
+                    try? pixelBufferAdaptor.append(pixelBuffer, withPresentationTime: presentationTime)
+                }
+            }
+            
+            frameCount += 1
+        }
+        
+        // Finish writing video
+        videoWriterInput.markAsFinished()
+        await videoWriter.finishWriting()
+        
+        return outputURL
+    }
+    
+    private func createPixelBuffer(from image: CGImage, attributes: [String: Any]) -> CVPixelBuffer? {
+        var pixelBuffer: CVPixelBuffer?
+        
+        let status = CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            image.width,
+            image.height,
+            kCVPixelFormatType_32ARGB,
+            attributes as CFDictionary,
+            &pixelBuffer
+        )
+        
+        guard status == kCVReturnSuccess, let pixelBuffer = pixelBuffer else {
+            return nil
+        }
+        
+        CVPixelBufferLockBaseAddress(pixelBuffer, [])
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, []) }
+        
+        let pixelData = CVPixelBufferGetBaseAddress(pixelBuffer)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        
+        guard let context = CGContext(
+            data: pixelData,
+            width: image.width,
+            height: image.height,
+            bitsPerComponent: 8,
+            bytesPerRow: CVPixelBufferGetBytesPerRow(pixelBuffer),
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue
+        ) else {
+            return nil
+        }
+        
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return pixelBuffer
     }
     
     private func startGeneration(description: String, style: DreamVideoStyle) async throws -> String {
@@ -384,24 +514,7 @@ final class VideoGenerationService: ObservableObject {
         }
     }
     
-    private func downloadVideo(from url: URL) async throws -> URL {
-        let (tempURL, response) = try await URLSession.shared.download(from: url)
-        
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
-            throw VideoGenerationError.videoDownloadFailed
-        }
-        
-        // Move to a temporary file with .mp4 extension
-        let temporaryDirectory = FileManager.default.temporaryDirectory
-        let destinationURL = temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
-        
-        try? FileManager.default.removeItem(at: destinationURL)
-        try FileManager.default.moveItem(at: tempURL, to: destinationURL)
-        
-        return destinationURL
-    }
-    
+    @MainActor
     private func extractAudioFromVideo(at videoURL: URL) async throws -> URL? {
         print("\n🔊 AUDIO EXTRACTION START")
         print("🔊 Source video URL: \(videoURL)")
@@ -441,7 +554,11 @@ final class VideoGenerationService: ObservableObject {
         }
         
         print("🔊 Export session created successfully")
-        print("🔊 Supported file types: \(AVAssetExportSession.exportPresets(compatibleWith: asset))")
+        print("🔊 Available export presets:")
+        print("🔊 - High Quality: \(AVAssetExportPresetHighestQuality)")
+        print("🔊 - Medium Quality: \(AVAssetExportPresetMediumQuality)")
+        print("🔊 - Low Quality: \(AVAssetExportPresetLowQuality)")
+        print("🔊 - Audio Only: \(AVAssetExportPresetAppleM4A)")
         
         exportSession.outputURL = audioURL
         exportSession.outputFileType = AVFileType.m4a

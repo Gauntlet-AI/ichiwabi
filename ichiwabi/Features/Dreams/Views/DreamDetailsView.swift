@@ -243,24 +243,6 @@ struct DreamDetailsView: View {
     }
 }
 
-// Add the PulsingTextModifier if it doesn't exist
-private struct PulsingTextModifier: ViewModifier {
-    @State private var isAnimating = false
-    
-    func body(content: Content) -> some View {
-        content
-            .opacity(isAnimating ? 0.5 : 1.0)
-            .animation(
-                .easeInOut(duration: 1.5)
-                .repeatForever(autoreverses: true),
-                value: isAnimating
-            )
-            .onAppear {
-                isAnimating = true
-            }
-    }
-}
-
 #Preview {
     NavigationStack {
         DreamDetailsView(

@@ -29,11 +29,19 @@ enum VideoAssetError: LocalizedError {
 actor VideoAssetService {
     // MARK: - Properties
     private var baseVideoAssets: [DreamVideoStyle: AVAsset] = [:]
-    private let watermarkService = WatermarkService.shared
+    
+    @MainActor
+    private static let sharedWatermarkService = WatermarkService.shared
     
     // MARK: - Initialization
     init() {
         // We'll load videos on demand instead of at init
+    }
+    
+    // Helper to access watermark service safely
+    @MainActor
+    private func getWatermarkService() -> WatermarkService {
+        return Self.sharedWatermarkService
     }
     
     // MARK: - Asset Loading
@@ -56,7 +64,7 @@ actor VideoAssetService {
         print("🔍 Bundle details:")
         print("🔍 - Bundle identifier: \(Bundle.main.bundleIdentifier ?? "none")")
         print("🔍 - Bundle path: \(Bundle.main.bundlePath)")
-        print("🔍 - Resource path: \(Bundle.main.resourcePath ?? "none")")
+        print("🔍 - Resource path: \(String(describing: Bundle.main.resourcePath ?? "none"))")
         
         // First try Resources folder specifically
         print("\n🔍 Trying Resources folder first...")
@@ -156,162 +164,190 @@ actor VideoAssetService {
     
     // MARK: - Video Processing
     func createVideoWithAudio(audioURL: URL, duration: TimeInterval, style: DreamVideoStyle) async throws -> URL {
-        print("\n⭐️ STEP 1: Starting video creation")
-        print("⭐️ Audio URL: \(audioURL)")
-        print("⭐️ Duration: \(duration)")
-        print("⭐️ Style: \(style)")
-        
-        // Configure audio session first
-        print("\n⭐️ STEP 2: Configuring audio session")
-        let audioSession = AVAudioSession.sharedInstance()
-        try audioSession.setCategory(.playback, mode: .default, options: [])
-        try audioSession.setActive(true)
-        print("⭐️ Audio session configured")
-        
-        // Get base video
-        print("\n⭐️ STEP 3: Loading base video asset")
-        let baseAsset = try getBaseVideoAsset(for: style)
-        print("⭐️ Base asset loaded successfully")
-        
-        // Create video-only composition first
-        print("\n⭐️ STEP 4: Creating video composition")
-        let composition = AVMutableComposition()
-        
-        // Create video track
-        guard let videoTrack = composition.addMutableTrack(
-            withMediaType: .video,
-            preferredTrackID: kCMPersistentTrackID_Invalid
-        ) else {
-            print("❌ Failed to create video track")
-            throw VideoAssetError.invalidAsset
-        }
-        
-        // Load video track
-        guard let baseVideoTrack = try await baseAsset.loadTracks(withMediaType: .video).first else {
-            print("❌ No video track found in base asset")
-            throw VideoAssetError.invalidAsset
-        }
-        
-        // Calculate time ranges
-        print("\n⭐️ STEP 5: Calculating durations")
-        let videoDuration = try await baseAsset.load(.duration)
-        let targetDuration = CMTime(seconds: duration, preferredTimescale: 600)
-        print("⭐️ Video duration: \(videoDuration.seconds)s")
-        print("⭐️ Target duration: \(targetDuration.seconds)s")
-        
-        // Loop video to match target duration
-        print("\n⭐️ STEP 6: Creating looped video")
-        var currentTime = CMTime.zero
-        while currentTime < targetDuration {
-            let remainingTime = targetDuration - currentTime
-            let insertDuration = min(remainingTime, videoDuration)
+        return try await Task.detached { [self] () -> URL in
+            print("\n⭐️ STEP 1: Starting video creation")
+            print("⭐️ Audio URL: \(audioURL)")
+            print("⭐️ Duration: \(duration)")
+            print("⭐️ Style: \(style)")
             
-            try videoTrack.insertTimeRange(
-                CMTimeRange(start: .zero, duration: insertDuration),
-                of: baseVideoTrack,
-                at: currentTime
+            // Configure audio session first
+            print("\n⭐️ STEP 2: Configuring audio session")
+            let audioSession = AVAudioSession.sharedInstance()
+            try audioSession.setCategory(.playback, mode: .default, options: [])
+            try audioSession.setActive(true)
+            print("⭐️ Audio session configured")
+            
+            // Get base video
+            print("\n⭐️ STEP 3: Loading base video asset")
+            let baseAsset = try await getBaseVideoAsset(for: style)
+            print("⭐️ Base asset loaded successfully")
+            
+            // Create video-only composition first
+            print("\n⭐️ STEP 4: Creating video composition")
+            let composition = AVMutableComposition()
+            
+            // Create video track
+            guard let videoTrack = composition.addMutableTrack(
+                withMediaType: .video,
+                preferredTrackID: kCMPersistentTrackID_Invalid
+            ) else {
+                print("❌ Failed to create video track")
+                throw VideoAssetError.invalidAsset
+            }
+            
+            // Load video track
+            guard let baseVideoTrack = try await baseAsset.loadTracks(withMediaType: .video).first else {
+                print("❌ No video track found in base asset")
+                throw VideoAssetError.invalidAsset
+            }
+            
+            // Calculate time ranges
+            print("\n⭐️ STEP 5: Calculating durations")
+            let videoDuration = try await baseAsset.load(.duration)
+            let targetDuration = CMTime(seconds: duration, preferredTimescale: 600)
+            print("⭐️ Video duration: \(videoDuration.seconds)s")
+            print("⭐️ Target duration: \(targetDuration.seconds)s")
+            
+            // Loop video to match target duration
+            print("\n⭐️ STEP 6: Creating looped video")
+            var currentTime = CMTime.zero
+            while currentTime < targetDuration {
+                let remainingTime = targetDuration - currentTime
+                let insertDuration = min(remainingTime, videoDuration)
+                
+                try videoTrack.insertTimeRange(
+                    CMTimeRange(start: .zero, duration: insertDuration),
+                    of: baseVideoTrack,
+                    at: currentTime
+                )
+                
+                currentTime = CMTimeAdd(currentTime, insertDuration)
+            }
+            
+            // Export video-only composition first
+            print("\n⭐️ STEP 7: Exporting video-only composition")
+            let videoOnlyURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString)_video.mp4")
+            
+            guard let exportSession = AVAssetExportSession(
+                asset: composition,
+                presetName: AVAssetExportPreset1280x720
+            ) else {
+                print("❌ Failed to create export session")
+                throw VideoAssetError.invalidAsset
+            }
+            
+            exportSession.outputURL = videoOnlyURL
+            exportSession.outputFileType = .mp4
+            exportSession.shouldOptimizeForNetworkUse = true
+            
+            print("⭐️ Starting video-only export")
+            await exportSession.export()
+            guard exportSession.status == .completed else {
+                if let error = exportSession.error {
+                    print("❌ Export failed with error: \(error)")
+                    print("❌ Error details: \(error.localizedDescription)")
+                    let nsError = error as NSError
+                    print("❌ Domain: \(nsError.domain)")
+                    print("❌ Code: \(nsError.code)")
+                    if let underlyingError = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+                        print("❌ Underlying error: \(underlyingError)")
+                    }
+                }
+                throw VideoAssetError.exportFailed(exportSession.error ?? NSError(domain: "VideoAsset", code: -1))
+            }
+            
+            // Now create a new composition with both video and audio
+            print("\n⭐️ STEP 8: Creating final composition with audio")
+            let finalComposition = AVMutableComposition()
+            
+            // Add video track
+            guard let finalVideoTrack = finalComposition.addMutableTrack(
+                withMediaType: .video,
+                preferredTrackID: kCMPersistentTrackID_Invalid
+            ) else {
+                print("❌ Failed to create final video track")
+                throw VideoAssetError.invalidAsset
+            }
+            
+            // Add audio track
+            guard let finalAudioTrack = finalComposition.addMutableTrack(
+                withMediaType: .audio,
+                preferredTrackID: kCMPersistentTrackID_Invalid
+            ) else {
+                print("❌ Failed to create final audio track")
+                throw VideoAssetError.invalidAsset
+            }
+            
+            // Load the exported video
+            let exportedVideoAsset = AVAsset(url: videoOnlyURL)
+            let audioAsset = AVAsset(url: audioURL)
+            
+            // Get source tracks
+            guard let sourceVideoTrack = try await exportedVideoAsset.loadTracks(withMediaType: .video).first,
+                  let sourceAudioTrack = try await audioAsset.loadTracks(withMediaType: .audio).first else {
+                print("❌ Failed to load source tracks")
+                throw VideoAssetError.invalidAsset
+            }
+            
+            // Insert tracks
+            print("⭐️ Inserting final video and audio tracks")
+            try finalVideoTrack.insertTimeRange(
+                CMTimeRange(start: .zero, duration: targetDuration),
+                of: sourceVideoTrack,
+                at: .zero
             )
             
-            currentTime = CMTimeAdd(currentTime, insertDuration)
-        }
-        
-        // Export video-only composition first
-        print("\n⭐️ STEP 7: Exporting video-only composition")
-        let videoOnlyURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString)_video.mp4")
-        
-        guard let exportSession = AVAssetExportSession(
-            asset: composition,
-            presetName: AVAssetExportPreset1280x720
-        ) else {
-            print("❌ Failed to create export session")
-            throw VideoAssetError.invalidAsset
-        }
-        
-        exportSession.outputURL = videoOnlyURL
-        exportSession.outputFileType = .mp4
-        exportSession.shouldOptimizeForNetworkUse = true
-        
-        print("⭐️ Starting video-only export")
-        try await performExport(with: exportSession)
-        
-        // Now create a new composition with both video and audio
-        print("\n⭐️ STEP 8: Creating final composition with audio")
-        let finalComposition = AVMutableComposition()
-        
-        // Add video track
-        guard let finalVideoTrack = finalComposition.addMutableTrack(
-            withMediaType: .video,
-            preferredTrackID: kCMPersistentTrackID_Invalid
-        ) else {
-            print("❌ Failed to create final video track")
-            throw VideoAssetError.invalidAsset
-        }
-        
-        // Add audio track
-        guard let finalAudioTrack = finalComposition.addMutableTrack(
-            withMediaType: .audio,
-            preferredTrackID: kCMPersistentTrackID_Invalid
-        ) else {
-            print("❌ Failed to create final audio track")
-            throw VideoAssetError.invalidAsset
-        }
-        
-        // Load the exported video
-        let exportedVideoAsset = AVAsset(url: videoOnlyURL)
-        let audioAsset = AVAsset(url: audioURL)
-        
-        // Get source tracks
-        guard let sourceVideoTrack = try await exportedVideoAsset.loadTracks(withMediaType: .video).first,
-              let sourceAudioTrack = try await audioAsset.loadTracks(withMediaType: .audio).first else {
-            print("❌ Failed to load source tracks")
-            throw VideoAssetError.invalidAsset
-        }
-        
-        // Insert tracks
-        print("⭐️ Inserting final video and audio tracks")
-        try finalVideoTrack.insertTimeRange(
-            CMTimeRange(start: .zero, duration: targetDuration),
-            of: sourceVideoTrack,
-            at: .zero
-        )
-        
-        try finalAudioTrack.insertTimeRange(
-            CMTimeRange(start: .zero, duration: targetDuration),
-            of: sourceAudioTrack,
-            at: .zero
-        )
-        
-        // Export final composition
-        print("\n⭐️ STEP 9: Exporting final composition")
-        let finalURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString)_final.mp4")
-        
-        guard let finalExportSession = AVAssetExportSession(
-            asset: finalComposition,
-            presetName: AVAssetExportPreset1280x720
-        ) else {
-            print("❌ Failed to create final export session")
-            throw VideoAssetError.invalidAsset
-        }
-        
-        finalExportSession.outputURL = finalURL
-        finalExportSession.outputFileType = .mp4
-        finalExportSession.shouldOptimizeForNetworkUse = true
-        
-        // Use less demanding audio settings
-        if #available(iOS 15.0, *) {
-            finalExportSession.audioTimePitchAlgorithm = .timeDomain
-        } else {
-            finalExportSession.audioTimePitchAlgorithm = .lowQualityZeroLatency
-        }
-        finalExportSession.audioMix = nil
-        
-        print("⭐️ Starting final export")
-        try await performExport(with: finalExportSession)
-        
-        // Clean up intermediate file
-        try? FileManager.default.removeItem(at: videoOnlyURL)
-        
-        return finalURL
+            try finalAudioTrack.insertTimeRange(
+                CMTimeRange(start: .zero, duration: targetDuration),
+                of: sourceAudioTrack,
+                at: .zero
+            )
+            
+            // Export final composition
+            print("\n⭐️ STEP 9: Exporting final composition")
+            let finalURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString)_final.mp4")
+            
+            guard let finalExportSession = AVAssetExportSession(
+                asset: finalComposition,
+                presetName: AVAssetExportPreset1280x720
+            ) else {
+                print("❌ Failed to create final export session")
+                throw VideoAssetError.invalidAsset
+            }
+            
+            finalExportSession.outputURL = finalURL
+            finalExportSession.outputFileType = .mp4
+            finalExportSession.shouldOptimizeForNetworkUse = true
+            
+            // Use less demanding audio settings
+            if #available(iOS 15.0, *) {
+                finalExportSession.audioTimePitchAlgorithm = .timeDomain
+            } else {
+                finalExportSession.audioTimePitchAlgorithm = .lowQualityZeroLatency
+            }
+            finalExportSession.audioMix = nil
+            
+            print("⭐️ Starting final export")
+            await finalExportSession.export()
+            guard finalExportSession.status == .completed else {
+                if let error = finalExportSession.error {
+                    print("❌ Export failed with error: \(error)")
+                    print("❌ Error details: \(error.localizedDescription)")
+                    let nsError = error as NSError
+                    print("❌ Domain: \(nsError.domain)")
+                    print("❌ Code: \(nsError.code)")
+                    if let underlyingError = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+                        print("❌ Underlying error: \(underlyingError)")
+                    }
+                }
+                throw VideoAssetError.exportFailed(finalExportSession.error ?? NSError(domain: "VideoAsset", code: -1))
+            }
+            
+            // Clean up intermediate file
+            try? FileManager.default.removeItem(at: videoOnlyURL)
+            
+            return finalURL
+        }.value
     }
     
     // MARK: - AI Video Processing
@@ -369,7 +405,7 @@ actor VideoAssetService {
             print("🔊 Audio tracks found: \(audioTracks.count)")
             for (index, track) in audioTracks.enumerated() {
                 print("🔊 Track \(index):")
-                print("🔊 - Format descriptions: \(try? await track.load(.formatDescriptions))")
+                print("🔊 - Format descriptions: \(String(describing: try? await track.load(.formatDescriptions)))")
                 if let formatDescriptions = try? await track.load(.formatDescriptions) as [CMFormatDescription],
                    let firstFormat = formatDescriptions.first,
                    let basicDescription = CMAudioFormatDescriptionGetStreamBasicDescription(firstFormat) {
@@ -501,6 +537,16 @@ actor VideoAssetService {
             
             await exportSession.export()
             guard exportSession.status == .completed else {
+                if let error = exportSession.error {
+                    print("❌ Export failed with error: \(error)")
+                    print("❌ Error details: \(error.localizedDescription)")
+                    let nsError = error as NSError
+                    print("❌ Domain: \(nsError.domain)")
+                    print("❌ Code: \(nsError.code)")
+                    if let underlyingError = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+                        print("❌ Underlying error: \(underlyingError)")
+                    }
+                }
                 throw VideoAssetError.exportFailed(exportSession.error ?? NSError(domain: "VideoAsset", code: -1))
             }
             
@@ -546,20 +592,14 @@ actor VideoAssetService {
             try compositionAudioTrack.insertTimeRange(timeRange, of: sourceAudioTrack, at: .zero)
             
             // Create watermark composition
-            let watermarkComposition: AVMutableVideoComposition
-            if #available(iOS 15.0, *) {
-                watermarkComposition = try await self.watermarkService.applyWatermark(
+            let watermarkComposition: AVMutableVideoComposition = try await Task { @MainActor in
+                let watermarkService = Self.sharedWatermarkService
+                return try await watermarkService.applyWatermark(
                     to: composition,
                     date: Date(),
                     title: title
                 )
-            } else {
-                watermarkComposition = try await self.watermarkService.applyWatermark(
-                    to: composition,
-                    date: Date(),
-                    title: title
-                )
-            }
+            }.value
             
             // Export final video
             let finalURL = FileManager.default.temporaryDirectory
@@ -618,22 +658,5 @@ actor VideoAssetService {
         compositionTrack.preferredTransform = transform
         
         return compositionTrack
-    }
-    
-    private func performExport(with session: AVAssetExportSession) async throws {
-        await session.export()
-        guard session.status == .completed else {
-            if let error = session.error {
-                print("❌ Export failed with error: \(error)")
-                print("❌ Error details: \(error.localizedDescription)")
-                let nsError = error as NSError
-                print("❌ Domain: \(nsError.domain)")
-                print("❌ Code: \(nsError.code)")
-                if let underlyingError = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
-                    print("❌ Underlying error: \(underlyingError)")
-                }
-            }
-            throw VideoAssetError.exportFailed(session.error ?? NSError(domain: "VideoAsset", code: -1))
-        }
     }
 } 

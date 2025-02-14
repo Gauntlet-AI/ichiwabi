@@ -5,6 +5,7 @@ import FirebaseAuth
 struct HomeView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var syncViewModel: SyncViewModel
+    @EnvironmentObject private var watchSyncManager: WatchSyncManager
     @Query private var users: [User]
     @State private var showError = false
     @StateObject private var viewModel: HomeViewModel
@@ -86,6 +87,8 @@ struct HomeView: View {
                     // Refresh data when view appears
                     Task {
                         await viewModel.refreshData()
+                        // Trigger Watch sync
+                        watchSyncManager.triggerLibrarySync()
                     }
                 }
                 .onChange(of: scenePhase) { _, newPhase in
@@ -93,6 +96,8 @@ struct HomeView: View {
                         // Refresh data when app becomes active
                         Task {
                             await viewModel.refreshData()
+                            // Trigger Watch sync
+                            watchSyncManager.triggerLibrarySync()
                         }
                     }
                 }
@@ -439,6 +444,7 @@ private struct PreviewContentView: View {
                     HomeView(userId: "preview_user", viewModel: viewModel)
                         .modelContainer(container)
                         .environmentObject(SyncViewModel(modelContext: ModelContext(container)))
+                        .environmentObject(WatchSyncManager())
                         .preferredColorScheme(.dark)
                         .background(Theme.darkNavy)
                 }

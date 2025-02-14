@@ -474,8 +474,12 @@ final class VideoProcessingService: ObservableObject {
         exportSession.outputFileType = .mp4
         exportSession.shouldOptimizeForNetworkUse = true
         
-        // Use conservative settings
-        exportSession.audioTimePitchAlgorithm = .lowQualityZeroLatency
+        // Use appropriate audio settings based on iOS version
+        if #available(iOS 15.0, *) {
+            exportSession.audioTimePitchAlgorithm = .timeDomain
+        } else {
+            exportSession.audioTimePitchAlgorithm = .lowQualityZeroLatency
+        }
         
         print("🎬 Exporting intermediate file...")
         await exportSession.export()

@@ -1,0 +1,9 @@
+module FirebaseFirestore {
+    header "FirebaseFirestore/FirebaseFirestore.h"
+    export *
+}
+
+module FirebaseStorage {
+    header "FirebaseStorage/FirebaseStorage.h"
+    export *
+} 
